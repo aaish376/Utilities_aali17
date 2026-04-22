@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>JAR Import Search Results</title>
+<!-- Auto-load: Java writes search_results.js next to this HTML file.
+     If the file exists, resultData will already be defined before our script runs.
+     If not, the upload zone lets the user pick the .js file manually. -->
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg:        #0b0e14;
+    --surface:   #131720;
+    --border:    #1e2535;
+    --accent:    #00e5ff;
+    --accent2:   #7c3aed;
+    --warn:      #f59e0b;
+    --text:      #e2e8f0;
+    --muted:     #64748b;
+    --hit:       #00e5ff22;
+    --radius:    8px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── grid noise overlay ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* ── glow blob ── */
+  .glow {
+    position: fixed; width: 600px; height: 600px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(124,58,237,.18) 0%, transparent 70%);
+    top: -200px; right: -200px; pointer-events: none; z-index: 0;
+    animation: drift 12s ease-in-out infinite alternate;
+  }
+  @keyframes drift { to { transform: translate(-60px, 80px); } }
+
+  /* ── layout ── */
+  .wrapper { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  /* ── header ── */
+  header { margin-bottom: 48px; }
+  .logo { font-size: 11px; letter-spacing: .25em; color: var(--accent); text-transform: uppercase; margin-bottom: 12px; }
+  h1 {
+    font-size: clamp(28px, 5vw, 52px);
+    font-weight: 800;
+    line-height: 1.05;
+    background: linear-gradient(135deg, var(--text) 30%, var(--accent));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .subtitle { margin-top: 10px; color: var(--muted); font-size: 14px; font-family: 'JetBrains Mono', monospace; }
+
+  /* ── upload zone ── */
+  .upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 48px 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+    margin-bottom: 40px;
+    background: var(--surface);
+  }
+  .upload-zone:hover, .upload-zone.drag { border-color: var(--accent); background: #00e5ff08; }
+  .upload-zone svg { width: 40px; height: 40px; color: var(--muted); margin-bottom: 14px; }
+  .upload-zone p { color: var(--muted); font-size: 14px; font-family: 'JetBrains Mono', monospace; }
+  .upload-zone p span { color: var(--accent); }
+  #fileInput { display: none; }
+
+  /* ── stats bar ── */
+  .stats {
+    display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 32px;
+    opacity: 0; transform: translateY(12px);
+    transition: opacity .4s, transform .4s;
+  }
+  .stats.show { opacity: 1; transform: none; }
+  .stat-pill {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 100px; padding: 8px 18px;
+    font-size: 13px; font-family: 'JetBrains Mono', monospace;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .stat-pill .num { color: var(--accent); font-weight: 700; font-size: 16px; }
+
+  /* ── search bar ── */
+  .search-wrap { position: relative; margin-bottom: 32px; }
+  .search-wrap input {
+    width: 100%; background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 12px 16px 12px 44px;
+    color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 13px;
+    outline: none; transition: border-color .2s;
+  }
+  .search-wrap input:focus { border-color: var(--accent); }
+  .search-wrap input::placeholder { color: var(--muted); }
+  .search-wrap svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--muted); width: 18px; }
+
+  /* ── search block ── */
+  .search-block {
+    margin-bottom: 36px;
+    opacity: 0; transform: translateY(16px);
+    animation: fadeUp .4s forwards;
+  }
+  @keyframes fadeUp { to { opacity: 1; transform: none; } }
+
+  .search-label {
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    color: #fff; border-radius: var(--radius) var(--radius) 0 0;
+    padding: 10px 18px; font-size: 11px; letter-spacing: .15em;
+    text-transform: uppercase; font-weight: 700;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .search-label .sq { display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: rgba(255,255,255,.5); }
+  .search-text-value {
+    background: var(--surface); border: 1px solid var(--border); border-top: none;
+    border-radius: 0 0 0 0;
+    padding: 12px 18px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px; color: var(--accent); word-break: break-all;
+  }
+
+  /* ── jar accordion ── */
+  .jar-card {
+    border: 1px solid var(--border); border-top: none;
+    background: var(--bg);
+    transition: border-color .15s;
+  }
+  .jar-card:last-child { border-radius: 0 0 var(--radius) var(--radius); }
+  .jar-card:hover { border-color: #2e3a52; }
+
+  .jar-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 18px; cursor: pointer;
+    user-select: none;
+  }
+  .jar-name {
+    font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600;
+    color: var(--warn); display: flex; align-items: center; gap: 8px;
+  }
+  .jar-name svg { width: 16px; opacity: .7; }
+  .jar-badge {
+    background: #1e2535; color: var(--muted);
+    font-size: 11px; font-family: 'JetBrains Mono', monospace;
+    padding: 3px 10px; border-radius: 100px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .jar-badge .count { color: var(--text); font-weight: 700; }
+  .chevron { width: 16px; color: var(--muted); transition: transform .2s; }
+  .jar-card.open .chevron { transform: rotate(180deg); }
+
+  /* ── class table ── */
+  .class-table-wrap { overflow: hidden; max-height: 0; transition: max-height .3s ease; }
+  .jar-card.open .class-table-wrap { max-height: 2000px; }
+
+  table {
+    width: 100%; border-collapse: collapse;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  }
+  thead tr { background: #0e1219; }
+  th {
+    padding: 8px 18px; text-align: left; color: var(--muted);
+    font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+  }
+  tbody tr { transition: background .15s; }
+  tbody tr:hover { background: var(--hit); }
+  td { padding: 9px 18px; border-bottom: 1px solid #141920; color: var(--text); }
+  td:last-child { text-align: right; }
+  .td-class { color: var(--accent); font-weight: 600; }
+  .td-path { color: var(--muted); word-break: break-all; }
+  .td-occ {
+    display: inline-block;
+    background: linear-gradient(135deg, var(--accent2), var(--accent));
+    color: #fff; border-radius: 100px;
+    padding: 2px 12px; font-weight: 700; font-size: 12px;
+  }
+
+  /* ── no-data ── */
+  .no-data {
+    text-align: center; padding: 64px 24px; color: var(--muted);
+    font-family: 'JetBrains Mono', monospace; font-size: 13px;
+    display: none;
+  }
+  .no-data svg { width: 48px; margin-bottom: 16px; opacity: .4; }
+
+  /* ── filter bar ── */
+  .filter-row {
+    display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 24px;
+    opacity: 0; transition: opacity .3s;
+  }
+  .filter-row.show { opacity: 1; }
+  .filter-btn {
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--muted); border-radius: 100px; padding: 5px 14px;
+    font-size: 11px; font-family: 'JetBrains Mono', monospace; cursor: pointer;
+    transition: all .15s;
+  }
+  .filter-btn:hover, .filter-btn.active { border-color: var(--accent); color: var(--accent); background: var(--hit); }
+
+  /* ── empty state ── */
+  .empty-state {
+    text-align: center; padding: 100px 24px;
+    opacity: 0; animation: fadeUp .5s .1s forwards;
+  }
+  .empty-state p { color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 13px; margin-top: 16px; }
+  .empty-icon { font-size: 56px; }
+
+  /* ── scrollbar ── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+<!-- Attempt to load the companion JS data file written by FindImportsInJars.java.
+     If the file is missing this tag simply does nothing (no error shown to user). -->
+<script src="search_results.js" onerror="window._jsFileMissing=true"></script>
+</head>
+<body>
+<div class="glow"></div>
+<div class="wrapper">
+
+  <header>
+    <div class="logo">⬡ JAR Inspector</div>
+    <h1>Search Results Viewer</h1>
+    <p class="subtitle">// Place search_results.js next to this file for instant load</p>
+  </header>
+
+  <!-- Upload zone — shown only if search_results.js is missing -->
+  <div class="upload-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+    <input type="file" id="fileInput" accept=".js,.json"/>
+    <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round"
+        d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+    </svg>
+    <p>Click or drag &amp; drop your <span>search_results.js</span></p>
+    <p style="margin-top:6px;font-size:11px;">Generated by FindImportsInJars.java — place it next to this HTML for auto-load (no server needed)</p>
+  </div>
+  <style>
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+
+  <!-- Stats bar -->
+  <div class="stats" id="statsBar">
+    <div class="stat-pill"><span class="num" id="stSearches">0</span> Search Terms</div>
+    <div class="stat-pill"><span class="num" id="stJars">0</span> JARs Hit</div>
+    <div class="stat-pill"><span class="num" id="stClasses">0</span> Classes Found</div>
+    <div class="stat-pill"><span class="num" id="stOcc">0</span> Total Occurrences</div>
+  </div>
+
+  <!-- Global filter search -->
+  <div class="search-wrap" id="filterWrap" style="display:none">
+    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 15.803 7.5 7.5 0 0015.803 15.803z"/>
+    </svg>
+    <input type="text" id="filterInput" placeholder="Filter by class name, path, or JAR…"/>
+  </div>
+
+  <!-- Filter buttons (per search term) -->
+  <div class="filter-row" id="filterRow"></div>
+
+  <!-- Results container -->
+  <div id="results"></div>
+
+  <!-- Empty state -->
+  <div class="empty-state" id="emptyState" style="display:none">
+    <div class="empty-icon">🔍</div>
+    <p>No matches found for your filter.</p>
+  </div>
+
+</div>
+
+<script>
+  let allData = [];
+  let activeFilter = null;
+
+  /* ════════════════════════════════════════════
+     BOOT: check if search_results.js was loaded
+     (it defines window.resultData before this script runs)
+     ════════════════════════════════════════════ */
+  window.addEventListener('DOMContentLoaded', () => {
+    if (typeof resultData !== 'undefined' && Array.isArray(resultData)) {
+      // JS data file was found and loaded — go straight to results
+      document.getElementById('dropZone').style.display = 'none';
+      allData = resultData;
+      render(resultData);
+    }
+    // else: JS file missing → upload zone stays visible
+  });
+
+  /* ── File Input (manual upload fallback) ── */
+  document.getElementById('fileInput').addEventListener('change', e => loadFile(e.target.files[0]));
+
+  /* ── Drag & Drop ── */
+  const dropZone = document.getElementById('dropZone');
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault(); dropZone.classList.remove('drag');
+    if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+  });
+
+  function loadFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        let data;
+        const raw = e.target.result.trim();
+
+        if (file.name.endsWith('.js')) {
+          // Extract the array from  var resultData = [...];
+          const match = raw.match(/var\s+resultData\s*=\s*(\[[\s\S]*\])\s*;?/);
+          if (!match) throw new Error('Could not find resultData variable in JS file');
+          data = JSON.parse(match[1]);
+        } else {
+          // Plain JSON file
+          data = JSON.parse(raw);
+        }
+
+        allData = data;
+        dropZone.style.display = 'none';
+        render(data);
+      } catch(err) {
+        alert('Could not read file:\n' + err.message + '\n\nExpected a .js file with: var resultData = [...];');
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  /* ── Filter input ── */
+  document.getElementById('filterInput').addEventListener('input', function() {
+    renderResults(allData, this.value.trim().toLowerCase(), activeFilter);
+  });
+
+  /* ── Render ── */
+  function render(data) {
+    let totalJars = 0, totalClasses = 0, totalOcc = 0;
+    data.forEach(s => {
+      s.jars.forEach(j => {
+        totalJars++;
+        j.classes.forEach(c => { totalClasses++; totalOcc += c.occurrences; });
+      });
+    });
+    document.getElementById('stSearches').textContent = data.length;
+    document.getElementById('stJars').textContent = totalJars;
+    document.getElementById('stClasses').textContent = totalClasses;
+    document.getElementById('stOcc').textContent = totalOcc;
+    document.getElementById('statsBar').classList.add('show');
+
+    const filterRow = document.getElementById('filterRow');
+    filterRow.innerHTML = '';
+    if (data.length > 1) {
+      const all = document.createElement('button');
+      all.className = 'filter-btn active'; all.textContent = 'All';
+      all.onclick = () => setFilter(null, all);
+      filterRow.appendChild(all);
+      data.forEach((s, i) => {
+        const short = s.searchText.split('.').pop();
+        const btn = document.createElement('button');
+        btn.className = 'filter-btn'; btn.textContent = short; btn.title = s.searchText;
+        btn.onclick = () => setFilter(i, btn);
+        filterRow.appendChild(btn);
+      });
+      filterRow.classList.add('show');
+    }
+
+    document.getElementById('filterWrap').style.display = '';
+    renderResults(data, '', null);
+  }
+
+  function setFilter(idx, btn) {
+    activeFilter = idx;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderResults(allData, document.getElementById('filterInput').value.toLowerCase(), idx);
+  }
+
+  function renderResults(data, query, filterIdx) {
+    const container = document.getElementById('results');
+    container.innerHTML = '';
+    let anyVisible = false;
+
+    data.forEach((searchItem, si) => {
+      if (filterIdx !== null && filterIdx !== undefined && Number(filterIdx) !== si) return;
+
+      const filteredJars = searchItem.jars
+        .map(jar => ({
+          ...jar,
+          classes: jar.classes.filter(c =>
+            !query ||
+            c.className.toLowerCase().includes(query) ||
+            c.classPath.toLowerCase().includes(query) ||
+            jar.jar.toLowerCase().includes(query)
+          )
+        }))
+        .filter(jar => jar.classes.length > 0);
+
+      if (filteredJars.length === 0 && query) return;
+      anyVisible = true;
+
+      const block = document.createElement('div');
+      block.className = 'search-block';
+      block.style.animationDelay = (si * 80) + 'ms';
+
+      const labelDiv = document.createElement('div');
+      labelDiv.className = 'search-label';
+      labelDiv.innerHTML = `<span class="sq"></span> Search Term ${si + 1}`;
+      block.appendChild(labelDiv);
+
+      const textDiv = document.createElement('div');
+      textDiv.className = 'search-text-value';
+      textDiv.textContent = searchItem.searchText;
+      block.appendChild(textDiv);
+
+      if (filteredJars.length === 0) {
+        const noResult = document.createElement('div');
+        noResult.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-top:none;padding:20px 18px;font-family:JetBrains Mono,monospace;font-size:12px;color:var(--muted);border-radius:0 0 8px 8px;';
+        noResult.textContent = '⚠ No matches found in any JAR.';
+        block.appendChild(noResult);
+      } else {
+        filteredJars.forEach((jar, ji) => {
+          const card = document.createElement('div');
+          card.className = 'jar-card' + (ji === 0 ? ' open' : '');
+          if (ji === filteredJars.length - 1) card.style.borderRadius = '0 0 8px 8px';
+          const totalOcc = jar.classes.reduce((s, c) => s + c.occurrences, 0);
+
+          card.innerHTML = `
+            <div class="jar-header">
+              <div class="jar-name">
+                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/>
+                </svg>
+                ${escHtml(jar.jar)}
+              </div>
+              <div style="display:flex;align-items:center;gap:10px">
+                <div class="jar-badge"><span class="count">${jar.classes.length}</span> classes &nbsp;·&nbsp; <span class="count">${totalOcc}</span> hits</div>
+                <svg class="chevron" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
+                </svg>
+              </div>
+            </div>
+            <div class="class-table-wrap">
+              <table>
+                <thead><tr><th>#</th><th>Class Name</th><th>Class Path</th><th>Occurrences</th></tr></thead>
+                <tbody>
+                  ${jar.classes.map((c, ci) => `
+                    <tr>
+                      <td style="color:var(--muted);width:40px">${ci + 1}</td>
+                      <td class="td-class">${escHtml(c.className)}</td>
+                      <td class="td-path">${escHtml(c.classPath)}</td>
+                      <td><span class="td-occ">${c.occurrences}</span></td>
+                    </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>`;
+
+          card.querySelector('.jar-header').addEventListener('click', () => card.classList.toggle('open'));
+          block.appendChild(card);
+        });
+      }
+
+      container.appendChild(block);
+    });
+
+    document.getElementById('emptyState').style.display = anyVisible ? 'none' : 'block';
+  }
+
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+</script>
+</body>
+</html>
