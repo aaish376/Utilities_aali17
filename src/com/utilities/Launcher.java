@@ -1,39 +1,26 @@
 package com.utilities;
 
 import com.utilities.InsertCommandFormatter.InsertCommandFormatterPanel;
-// import com.utilities.LogStatementFilter.LogStatementFilterPanel;   // add as you port each tool
-// import com.utilities.ScreenAwake.ScreenAwakePanel;
-// import com.utilities.UnloadToInsert.UnloadToInsertPanel;
+import com.utilities.LogStatementFilter.LogStatementFilterPanel;
+import com.utilities.UnloadToInsert.UnloadToInsertPanel;
+import com.utilities.Theme.Theme;
+import com.utilities.FindInJars.FindInJarsPanel;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 public class Launcher extends JFrame {
 
-    // ── Palette ───────────────────────────────────────────────────────────────
-    public static final Color BG        = new Color(0x0E0F19);
-    public static final Color NAV_BG    = new Color(0x13141F);
-    public static final Color CARD_BG   = new Color(0x1A1C27);
-    public static final Color ACCENT    = new Color(0x27A749);
-    public static final Color ACCENT2   = new Color(0x6C63FF);
-    public static final Color TEXT      = new Color(0xDDDDEE);
-    public static final Color SUBTEXT   = new Color(0x7777AA);
-
-    // ── Card names (used with CardLayout) ─────────────────────────────────────
-    public static final String HOME    = "HOME";
-    public static final String INSERT  = "INSERT";
-    public static final String LOG     = "LOG";
-    public static final String SCREEN  = "SCREEN";
-    public static final String UNLOAD  = "UNLOAD";
+    public static final String HOME   = "HOME";
+    public static final String INSERT = "INSERT";
+    public static final String LOG    = "LOG";
+    public static final String SCREEN = "SCREEN";
+    public static final String UNLOAD = "UNLOAD";
+    public static final String JFINDER = "JFINDER";
 
     private final CardLayout cardLayout = new CardLayout();
-    private final JPanel     body       = new JPanel(cardLayout);
-    private String           currentView = HOME;
-
-    // Nav quick-nav buttons (we keep refs to style active state)
-    private final Map<String, JButton> navToolBtns = new LinkedHashMap<>();
+    private final JPanel body = new JPanel(cardLayout);
+    private final java.util.Map<String, JButton> navToolBtns = new java.util.LinkedHashMap<>();
 
     public static void main(String[] args) {
         try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); }
@@ -43,247 +30,335 @@ public class Launcher extends JFrame {
 
     public Launcher() {
         setTitle("Utilities Hub");
-        setSize(1200, 720);
-        setMinimumSize(new Dimension(900, 600));
+        setSize(1280, 780);
+        setMinimumSize(new Dimension(960, 640));
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
-        getContentPane().setBackground(BG);
+        getContentPane().setBackground(Theme.BG_BASE);
         setLayout(new BorderLayout());
-
         add(buildNavBar(), BorderLayout.NORTH);
         add(buildBody(),   BorderLayout.CENTER);
-
+        add(buildFooter(), BorderLayout.SOUTH);
         navigateTo(HOME);
     }
 
     // ── NavBar ────────────────────────────────────────────────────────────────
     private JPanel buildNavBar() {
-        JPanel nav = new JPanel(new BorderLayout());
-        nav.setBackground(NAV_BG);
-        nav.setPreferredSize(new Dimension(0, 48));
-        nav.setBorder(BorderFactory.createMatteBorder(0, 0, 2, 0, ACCENT));
+        // Distinct background: one step darker than BG_SURFACE, with a visible
+        // left accent stripe and a stronger neon bottom line to separate it from body.
+        final Color NAV_BG      = new Color(0x07080E);   // darker than BG_BASE itself
+        final Color NAV_STRIPE  = Theme.ACCENT;           // left edge stripe
 
-        // Left: Back + Home
-        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 8));
-        left.setBackground(NAV_BG);
+        JPanel nav = new JPanel(new BorderLayout()) {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
 
-        JButton backBtn = navBtn("← Back", false);
-        backBtn.addActionListener(e -> navigateTo(HOME));
+                // Fill — noticeably darker than the body's BG_BASE
+                g2.setColor(NAV_BG);
+                g2.fillRect(0, 0, getWidth(), getHeight());
 
-        JButton homeBtn = navBtn("⌂ Home", false);
+                // Subtle scanlines
+                g2.setColor(new Color(0, 0, 0, 25));
+                for (int y = 0; y < getHeight(); y += 3)
+                    g2.drawLine(0, y, getWidth(), y);
+
+                // Left accent stripe
+                g2.setColor(NAV_STRIPE);
+                g2.fillRect(0, 0, 3, getHeight());
+
+                // Neon bottom separator — stronger than before
+                g2.setColor(Theme.ACCENT);
+                g2.setStroke(new BasicStroke(1.5f));
+                g2.drawLine(0, getHeight() - 1, getWidth(), getHeight() - 1);
+                for (int i = 1; i <= 6; i++) {
+                    g2.setColor(new Color(0, 255, 136, 22 - i * 3));
+                    g2.drawLine(0, getHeight() - 1 + i, getWidth(), getHeight() - 1 + i);
+                }
+
+                g2.dispose();
+            }
+        };
+        nav.setOpaque(false);
+        nav.setPreferredSize(new Dimension(0, Theme.NAV_HEIGHT));
+
+        // ── Left: wordmark + home ─────────────────────────────────────────────
+        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        left.setOpaque(false);
+        left.setBorder(BorderFactory.createEmptyBorder(0, 20, 0, 0)); // extra left pad for stripe
+
+        JLabel wordmark = new JLabel(
+                "<html><span style='color:#00FF88'>utils</span>" +
+                        "<span style='color:#2A2D40'>hub</span></html>");
+        wordmark.setFont(new Font("Courier New", Font.BOLD, 17));
+        wordmark.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 16));
+
+        JButton homeBtn = Theme.navButton("⌂  home");
         homeBtn.addActionListener(e -> navigateTo(HOME));
 
-        left.add(backBtn);
-        left.add(sep());
+        left.add(wordmark);
+        left.add(Theme.vDivider());
         left.add(homeBtn);
 
-        // Center: App title
-        JLabel title = new JLabel("Utilities Hub");
-        title.setFont(new Font("Segoe UI", Font.BOLD, 15));
-        title.setForeground(ACCENT);
-        title.setHorizontalAlignment(SwingConstants.CENTER);
-
-        // Right: Tool shortcut buttons
-        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 8));
-        right.setBackground(NAV_BG);
+        // ── Right: tool shortcuts ─────────────────────────────────────────────
+        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        right.setOpaque(false);
+        right.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 16));
 
         String[][] tools = {
                 { INSERT, "Insert Formatter" },
                 { LOG,    "Log Filter"       },
-                { SCREEN, "Screen Awake"     },
                 { UNLOAD, "Unload→Insert"    },
+                { JFINDER, "Jar Inspector" },
         };
         for (String[] t : tools) {
-            JButton btn = navBtn(t[1], false);
+            JButton btn = Theme.navButton(t[1]);
             btn.addActionListener(e -> navigateTo(t[0]));
             navToolBtns.put(t[0], btn);
             right.add(btn);
         }
 
-        nav.add(left,  BorderLayout.WEST);
-        nav.add(title, BorderLayout.CENTER);
-        nav.add(right, BorderLayout.EAST);
+        nav.add(vcenter(left),  BorderLayout.WEST);
+        nav.add(vcenter(right), BorderLayout.EAST);
         return nav;
     }
 
-    private JButton navBtn(String text, boolean active) {
-        JButton b = new JButton(text);
-        b.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        b.setFocusPainted(false);
-        b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        styleNavBtn(b, active);
-
-        b.addMouseListener(new java.awt.event.MouseAdapter() {
-            public void mouseEntered(java.awt.event.MouseEvent e) {
-                b.setBackground(ACCENT.darker().darker());
-                b.setForeground(Color.WHITE);
+    // ── Footer ────────────────────────────────────────────────────────────────
+    private JPanel buildFooter() {
+        JPanel footer = new JPanel(new BorderLayout()) {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setColor(new Color(0x07080E));
+                g2.fillRect(0, 0, getWidth(), getHeight());
+                // Top neon line (mirrors navbar bottom)
+                g2.setColor(new Color(0, 255, 136, 60));
+                g2.setStroke(new BasicStroke(1f));
+                g2.drawLine(0, 0, getWidth(), 0);
+                g2.dispose();
             }
-            public void mouseExited(java.awt.event.MouseEvent e) {
-                styleNavBtn(b, b.getClientProperty("active") == Boolean.TRUE);
+        };
+        footer.setOpaque(false);
+        footer.setPreferredSize(new Dimension(0, 28));
+
+        // Heart + credit — painted so we can use the actual ♥ glyph in red
+        JPanel credit = new JPanel(new FlowLayout(FlowLayout.CENTER, 4, 0)) {
+            @Override protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
             }
-        });
-        return b;
-    }
+        };
+        credit.setOpaque(false);
 
-    private void styleNavBtn(JButton b, boolean active) {
-        b.putClientProperty("active", active);
-        b.setBackground(active ? ACCENT.darker() : NAV_BG);
-        b.setForeground(active ? Color.WHITE : SUBTEXT);
-        b.setBorderPainted(active);
-        b.setBorder(active
-                ? BorderFactory.createLineBorder(ACCENT, 1, true)
-                : BorderFactory.createEmptyBorder(4, 10, 4, 10));
-    }
+        JLabel pre  = new JLabel("with");
+        pre.setFont(Theme.FONT_LABEL);
+        pre.setForeground(Theme.TEXT_DIM);
 
-    private JSeparator sep() {
-        JSeparator s = new JSeparator(SwingConstants.VERTICAL);
-        s.setPreferredSize(new Dimension(1, 24));
-        s.setForeground(new Color(0x2A2D40));
-        return s;
+        JLabel heart = new JLabel("♥");
+        heart.setFont(new Font("Segoe UI Symbol", Font.PLAIN, 12));
+        heart.setForeground(new Color(0xFF3355));   // vivid red heart
+
+        JLabel name = new JLabel("ASAD ALI AAiSH");
+        name.setFont(Theme.FONT_LABEL);
+        name.setForeground(Theme.TEXT_SECONDARY);
+
+        JLabel pipe = new JLabel("|");
+        pipe.setFont(Theme.FONT_LABEL);
+        pipe.setForeground(Theme.TEXT_DIM);
+
+        JLabel version = new JLabel("version 1.0");
+        version.setFont(Theme.FONT_LABEL);
+        version.setForeground(Theme.TEXT_DIM);
+
+        credit.add(pre);
+        credit.add(heart);
+        credit.add(name);
+        credit.add(pipe);
+        credit.add(version);
+
+        footer.add(vcenter(credit), BorderLayout.CENTER);
+        return footer;
     }
 
     // ── Body ──────────────────────────────────────────────────────────────────
     private JPanel buildBody() {
-        body.setBackground(BG);
-
-        body.add(buildHomePanel(),                HOME);
-        body.add(new InsertCommandFormatterPanel(this), INSERT);
-        // body.add(new LogStatementFilterPanel(this),    LOG);    // add when ported
-        // body.add(new ScreenAwakePanel(this),            SCREEN);
-        // body.add(new UnloadToInsertPanel(this),         UNLOAD);
-
-        // Placeholder panels for not-yet-ported tools
-        body.add(placeholder("Log Statement Filter — coming soon"),    LOG);
-        body.add(placeholder("Screen Awake — coming soon"),            SCREEN);
-        body.add(placeholder("Unload → Insert — coming soon"),         UNLOAD);
-
+        body.setBackground(Theme.BG_BASE);
+        body.add(buildHomePanel(),                      HOME);
+        body.add(new InsertCommandFormatterPanel(this),  INSERT);
+        body.add(new LogStatementFilterPanel(this),      LOG);
+        body.add(new UnloadToInsertPanel(this),          UNLOAD);
+        body.add(new FindInJarsPanel(this), JFINDER);
         return body;
     }
 
+    // ── Home ──────────────────────────────────────────────────────────────────
     private JPanel buildHomePanel() {
-        JPanel p = new JPanel(new GridBagLayout());
-        p.setBackground(BG);
+        JPanel outer = new JPanel(new GridBagLayout()) {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setColor(Theme.BG_BASE);
+                g2.fillRect(0, 0, getWidth(), getHeight());
+                g2.setColor(new Color(0, 255, 136, 8));
+                for (int x = 0; x < getWidth(); x += 28)
+                    for (int y = 0; y < getHeight(); y += 28)
+                        g2.fillOval(x, y, 2, 2);
+                g2.dispose();
+            }
+        };
+        outer.setOpaque(false);
 
         JPanel inner = new JPanel();
         inner.setLayout(new BoxLayout(inner, BoxLayout.Y_AXIS));
-        inner.setBackground(BG);
+        inner.setOpaque(false);
 
-        JLabel heading = new JLabel("Choose a Utility");
-        heading.setFont(new Font("Segoe UI", Font.BOLD, 28));
-        heading.setForeground(TEXT);
+        JLabel heading = new JLabel("UTILS HUB");
+        heading.setFont(new Font("Courier New", Font.BOLD, 36));
+        heading.setForeground(Theme.ACCENT);
         heading.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        JLabel sub = new JLabel("Select any tool below to get started");
-        sub.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        sub.setForeground(SUBTEXT);
+        JLabel sub = new JLabel("select a utility to launch");
+        sub.setFont(Theme.FONT_MONO_SM);
+        sub.setForeground(Theme.TEXT_SECONDARY);
         sub.setAlignmentX(Component.CENTER_ALIGNMENT);
 
+        JPanel underline = new JPanel() {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                int cx = getWidth() / 2;
+                g2.setColor(new Color(0, 255, 136, 30));
+                g2.setStroke(new BasicStroke(4f));
+                g2.drawLine(cx - 80, 4, cx + 80, 4);
+                g2.setColor(Theme.ACCENT);
+                g2.setStroke(new BasicStroke(1.5f));
+                g2.drawLine(cx - 80, 4, cx + 80, 4);
+                g2.dispose();
+            }
+        };
+        underline.setOpaque(false);
+        underline.setPreferredSize(new Dimension(300, 12));
+        underline.setMaximumSize(new Dimension(Integer.MAX_VALUE, 12));
+
+        inner.add(Box.createVerticalStrut(12));
         inner.add(heading);
+        inner.add(Box.createVerticalStrut(6));
+        inner.add(underline);
         inner.add(Box.createVerticalStrut(8));
         inner.add(sub);
-        inner.add(Box.createVerticalStrut(40));
+        inner.add(Box.createVerticalStrut(48));
 
-        // 2×2 card grid
         JPanel grid = new JPanel(new GridLayout(2, 2, 20, 20));
-        grid.setBackground(BG);
+        grid.setOpaque(false);
+        grid.setAlignmentX(Component.CENTER_ALIGNMENT);
+        grid.setMaximumSize(new Dimension(700, 320));
 
         Object[][] cards = {
-                { INSERT, "⌗", "Insert Formatter",   "Maps INSERT columns to values\nin a readable table.",    new Color(0x27A749) },
-                { LOG,    "⚙", "Log Filter",          "Filter log files by keyword\nor log level.",             new Color(0x00C9A7) },
-                { SCREEN, "◉", "Screen Awake",        "Prevent display sleep\nduring long tasks.",              new Color(0xF5A623) },
-                { UNLOAD, "⇄", "Unload → Insert",     "Convert export/unload files\nback to INSERT SQL.",       new Color(0xF06292) },
+                { INSERT, "⌗", "INSERT FORMATTER", "Maps INSERT columns\nto values in a table.",  Theme.ACCENT       },
+                { LOG,    "≡", "LOG FILTER",        "Filter log files by\nkeyword or level.",       new Color(0x00CCFF) },
+                { UNLOAD, "⇄", "UNLOAD→INSERT",     "Convert export files\nback to INSERT SQL.",    new Color(0xFF4488) },
+                { JFINDER, "⬡", "JAR INSPECTOR", "Search text across\nJAR class files.", new Color(0xFFAA00) },
         };
-
-        for (Object[] c : cards) {
-            grid.add(homeCard(
-                    (String) c[0], (String) c[1],
-                    (String) c[2], (String) c[3], (Color) c[4]
-            ));
-        }
+        for (Object[] c : cards)
+            grid.add(homeCard((String)c[0], (String)c[1], (String)c[2], (String)c[3], (Color)c[4]));
 
         inner.add(grid);
-        p.add(inner);
-        return p;
+        outer.add(inner);
+        return outer;
     }
 
     private JPanel homeCard(String view, String icon, String name, String desc, Color accent) {
         JPanel card = new JPanel(new BorderLayout(0, 8)) {
-            boolean hovered = false;
-            { setOpaque(false);
+            float hov = 0f; javax.swing.Timer t;
+            {
+                setOpaque(false);
                 addMouseListener(new java.awt.event.MouseAdapter() {
-                    public void mouseEntered(java.awt.event.MouseEvent e)
-                    { hovered = true;  repaint(); setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)); }
-                    public void mouseExited (java.awt.event.MouseEvent e)
-                    { hovered = false; repaint(); setCursor(Cursor.getDefaultCursor()); }
+                    public void mouseEntered(java.awt.event.MouseEvent e) { anim(true);  setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)); }
+                    public void mouseExited (java.awt.event.MouseEvent e) { anim(false); setCursor(Cursor.getDefaultCursor()); }
                     public void mouseClicked(java.awt.event.MouseEvent e) { navigateTo(view); }
                 });
+            }
+            void anim(boolean in) {
+                if (t != null) t.stop();
+                t = new javax.swing.Timer(16, null);
+                t.addActionListener(ev -> {
+                    hov = in ? Math.min(1f, hov+0.1f) : Math.max(0f, hov-0.08f);
+                    repaint(); if ((in && hov>=1f) || (!in && hov<=0f)) t.stop();
+                });
+                t.start();
             }
             @Override protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(hovered ? new Color(0x22243A) : CARD_BG);
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 14, 14);
-                g2.setColor(hovered ? accent : new Color(0x2A2D3E));
-                g2.setStroke(new BasicStroke(hovered ? 2f : 1f));
-                g2.drawRoundRect(1, 1, getWidth()-2, getHeight()-2, 14, 14);
-                g2.setColor(accent);
-                g2.fillRoundRect(0, 0, getWidth(), 4, 4, 4);
+                g2.setColor(new Color(
+                        (int)(Theme.BG_ELEVATED.getRed()   + (Theme.BG_CONTROL.getRed()   - Theme.BG_ELEVATED.getRed())   * hov),
+                        (int)(Theme.BG_ELEVATED.getGreen() + (Theme.BG_CONTROL.getGreen() - Theme.BG_ELEVATED.getGreen()) * hov),
+                        (int)(Theme.BG_ELEVATED.getBlue()  + (Theme.BG_CONTROL.getBlue()  - Theme.BG_ELEVATED.getBlue())  * hov)
+                ));
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), Theme.RADIUS_LG, Theme.RADIUS_LG);
+                g2.setColor(new Color(0, 0, 0, 12));
+                for (int y = 0; y < getHeight(); y += 3) g2.drawLine(0, y, getWidth(), y);
+                for (int i = 3; i >= 1; i--) {
+                    g2.setColor(new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), (int)(12*i*hov)));
+                    g2.setStroke(new BasicStroke(i*1.5f));
+                    g2.drawRoundRect(i, i, getWidth()-i*2-1, getHeight()-i*2-1, Theme.RADIUS_LG, Theme.RADIUS_LG);
+                }
+                g2.setColor(new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), (int)(80+175*hov)));
+                g2.setStroke(new BasicStroke(1.2f));
+                g2.drawRoundRect(0, 0, getWidth()-1, getHeight()-1, Theme.RADIUS_LG, Theme.RADIUS_LG);
+                g2.setColor(new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), (int)(180+75*hov)));
+                g2.fillRoundRect(0, 0, getWidth(), 3, Theme.RADIUS, Theme.RADIUS);
                 g2.dispose();
                 super.paintComponent(g);
             }
         };
-        card.setPreferredSize(new Dimension(220, 130));
-        card.setBorder(BorderFactory.createEmptyBorder(16, 16, 14, 16));
+        card.setPreferredSize(new Dimension(240, 145));
+        card.setBorder(BorderFactory.createEmptyBorder(16, 18, 14, 18));
 
         JLabel iconLbl = new JLabel(icon);
-        iconLbl.setFont(new Font("Segoe UI Symbol", Font.PLAIN, 26));
+        iconLbl.setFont(new Font("Segoe UI Symbol", Font.PLAIN, 22));
         iconLbl.setForeground(accent);
 
-        JLabel nameLbl = new JLabel("<html>" + name.replace("\n","<br>") + "</html>");
-        nameLbl.setFont(new Font("Segoe UI", Font.BOLD, 14));
-        nameLbl.setForeground(TEXT);
+        JLabel nameLbl = new JLabel(name);
+        nameLbl.setFont(new Font("Courier New", Font.BOLD, 13));
+        nameLbl.setForeground(Theme.TEXT_PRIMARY);
 
-        JLabel descLbl = new JLabel("<html><body style='width:140px'>" + desc.replace("\n","<br>") + "</body></html>");
-        descLbl.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        descLbl.setForeground(SUBTEXT);
+        JLabel descLbl = new JLabel(
+                "<html><body style='width:140px;color:#6B7094;font-family:Courier New;font-size:10px'>"
+                        + desc.replace("\n","<br>") + "</body></html>");
 
-        JLabel hint = new JLabel("Open →");
-        hint.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        JLabel hint = new JLabel("open →");
+        hint.setFont(Theme.FONT_LABEL);
         hint.setForeground(accent);
 
-        JPanel center = new JPanel();
-        center.setOpaque(false);
-        center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
-        center.add(nameLbl);
-        center.add(Box.createVerticalStrut(4));
-        center.add(descLbl);
+        JPanel top = new JPanel(new BorderLayout()); top.setOpaque(false); top.add(iconLbl, BorderLayout.WEST);
+        JPanel center = new JPanel(); center.setOpaque(false); center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
+        center.add(nameLbl); center.add(Box.createVerticalStrut(5)); center.add(descLbl);
+        JPanel bottom = new JPanel(new BorderLayout()); bottom.setOpaque(false); bottom.add(hint, BorderLayout.EAST);
 
-        JPanel bottom = new JPanel(new BorderLayout());
-        bottom.setOpaque(false);
-        bottom.add(hint, BorderLayout.EAST);
-
-        card.add(iconLbl, BorderLayout.NORTH);
-        card.add(center,  BorderLayout.CENTER);
-        card.add(bottom,  BorderLayout.SOUTH);
+        card.add(top,    BorderLayout.NORTH);
+        card.add(center, BorderLayout.CENTER);
+        card.add(bottom, BorderLayout.SOUTH);
         return card;
     }
 
-    private JPanel placeholder(String msg) {
-        JPanel p = new JPanel(new GridBagLayout());
-        p.setBackground(BG);
-        JLabel l = new JLabel(msg);
-        l.setForeground(SUBTEXT);
-        l.setFont(new Font("Segoe UI", Font.ITALIC, 16));
-        p.add(l);
-        return p;
+    private JPanel placeholder(String title, String sub) {
+        JPanel p = new JPanel(new GridBagLayout()); p.setBackground(Theme.BG_BASE);
+        JPanel box = new JPanel(); box.setLayout(new BoxLayout(box, BoxLayout.Y_AXIS));
+        box.setBorder(BorderFactory.createCompoundBorder(
+                new Theme.NeonBorder(new Color(0, 255, 136, 50), 2),
+                BorderFactory.createEmptyBorder(8, 40, 8, 40)));
+        box.setBackground(Theme.BG_ELEVATED);
+        JLabel t = new JLabel(title); t.setFont(Theme.FONT_MONO_LG); t.setForeground(Theme.TEXT_PRIMARY); t.setAlignmentX(CENTER_ALIGNMENT);
+        JLabel s = new JLabel(sub);   s.setFont(Theme.FONT_MONO_SM); s.setForeground(Theme.TEXT_SECONDARY); s.setAlignmentX(CENTER_ALIGNMENT);
+        JLabel badge = Theme.pillLabel("COMING SOON"); badge.setAlignmentX(CENTER_ALIGNMENT);
+        box.add(Box.createVerticalStrut(32)); box.add(t); box.add(Box.createVerticalStrut(10));
+        box.add(s); box.add(Box.createVerticalStrut(16)); box.add(badge); box.add(Box.createVerticalStrut(32));
+        p.add(box); return p;
     }
 
     // ── Navigation ────────────────────────────────────────────────────────────
     public void navigateTo(String view) {
-        currentView = view;
         cardLayout.show(body, view);
+        navToolBtns.forEach((k, btn) -> Theme.setNavActive(btn, k.equals(view)));
+    }
 
-        // Update active state on nav tool buttons
-        navToolBtns.forEach((k, btn) -> styleNavBtn(btn, k.equals(view)));
+    private JPanel vcenter(JPanel inner) {
+        JPanel w = new JPanel(new GridBagLayout()); w.setOpaque(false); w.add(inner); return w;
     }
 }
