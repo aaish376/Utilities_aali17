@@ -7,6 +7,11 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.datatransfer.*;
 import java.awt.event.*;
+import java.io.File;
+import java.io.IOException;
+import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.*;
 import java.util.List;
 import java.util.regex.*;
@@ -19,11 +24,17 @@ public class UnloadToInsertPanel extends JPanel {
     private static final Color ACCENT_PINK = new Color(0xFF4488);
 
     private final JTextArea selectArea  = Theme.textArea();
+    private final JTextArea ddlArea     = Theme.textArea();
     private final JTextArea unloadArea  = Theme.textArea();
     private final JTextArea outputArea  = Theme.textArea();
-    private       JLabel    statusLabel;
+    private       Theme.StatusBar statusBar;
     private       JTextField delimField;
     private       JCheckBox  delimCustomCb;
+    private       JComboBox<String> ddlComboBox;
+    private       boolean   suppressComboEvents = false;
+
+    private static final String DDL_STORE_DIRNAME = "ddl_store";
+    private static final String DDL_PLACEHOLDER   = "— select saved DDL —";
 
     public UnloadToInsertPanel(Launcher launcher) {
         this.launcher = launcher;
@@ -35,43 +46,29 @@ public class UnloadToInsertPanel extends JPanel {
     private void buildUI() {
         add(buildToolbar(),  BorderLayout.NORTH);
         add(buildCenter(),   BorderLayout.CENTER);
-        add(buildStatusBar(), BorderLayout.SOUTH);
+        statusBar = Theme.statusBar();
+        statusBar.set("Paste a SELECT and unload rows (+ optional DDL for accurate typing), then click Generate", Theme.TEXT_DIM);
+        add(statusBar.panel, BorderLayout.SOUTH);
     }
 
     private JPanel buildToolbar() {
-        JPanel bar = new JPanel(new BorderLayout()) {
-            @Override protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setColor(Theme.BG_SURFACE); g2.fillRect(0,0,getWidth(),getHeight());
-                g2.setColor(new Color(0,0,0,20));
-                for (int y=0;y<getHeight();y+=3) g2.drawLine(0,y,getWidth(),y);
-                g2.setColor(Theme.BORDER_DIM); g2.drawLine(0,getHeight()-1,getWidth(),getHeight()-1);
-                g2.dispose();
-            }
-        };
-        bar.setOpaque(false);
-
-        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 7));
-        left.setOpaque(false);
-
-        JLabel title = new JLabel("UNLOAD → INSERT");
-        title.setFont(Theme.FONT_MONO_LG);
+        JLabel title = new JLabel("Unload to Insert");
+        title.setFont(Theme.FONT_UI_BOLD);
         title.setForeground(ACCENT_PINK);
-        title.setBorder(BorderFactory.createEmptyBorder(0,8,0,14));
+        title.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 14));
 
-        JSeparator sep = Theme.vDivider();
-
-        JButton genBtn   = Theme.button("▶  GENERATE");
-        JButton copyBtn  = Theme.button("⎘  COPY OUTPUT");
-        JButton clearBtn = Theme.ghostButton("✕  CLEAR ALL");
+        JButton genBtn   = Theme.button("▶  Generate");
+        JButton copyBtn  = Theme.button("⎘  Copy Output");
+        JButton clearBtn = Theme.ghostButton("✕  Clear All");
 
         genBtn.addActionListener(e -> generate());
         copyBtn.addActionListener(e -> copyOutput());
         clearBtn.addActionListener(e -> clearAll());
 
         // Delimiter
-        JLabel delimLbl = new JLabel(" delimiter:");
-        delimLbl.setFont(Theme.FONT_LABEL); delimLbl.setForeground(Theme.TEXT_SECONDARY);
+        JLabel delimLbl = new JLabel("Delimiter:");
+        delimLbl.setFont(Theme.FONT_LABEL);
+        delimLbl.setForeground(Theme.TEXT_SECONDARY);
 
         delimField = Theme.textField(3);
         delimField.setText("|");
@@ -79,22 +76,20 @@ public class UnloadToInsertPanel extends JPanel {
         delimField.setEnabled(false);
         delimField.setFont(Theme.FONT_MONO_MD);
 
-        delimCustomCb = new JCheckBox("custom");
+        delimCustomCb = new JCheckBox("Custom");
         delimCustomCb.setOpaque(false);
         Theme.styleCheckbox(delimCustomCb);
         delimCustomCb.addActionListener(e -> delimField.setEnabled(delimCustomCb.isSelected()));
 
-        left.add(title); left.add(sep);
-        left.add(genBtn); left.add(copyBtn); left.add(clearBtn);
-        left.add(Theme.vDivider());
-        left.add(delimLbl); left.add(delimField); left.add(delimCustomCb);
+        JPanel left = Theme.toolRow(title, Theme.vDivider(), genBtn, copyBtn, clearBtn,
+                Theme.vDivider(), delimLbl, delimField, delimCustomCb);
+        left.setBorder(BorderFactory.createEmptyBorder(0, 12, 0, 0));
 
-        bar.add(vcenter(left), BorderLayout.WEST);
-        bar.setPreferredSize(new Dimension(0, Theme.NAV_HEIGHT + 8));
-        return bar;
+        JButton howToUseBtn = Theme.helpButton("How to Use");
+        howToUseBtn.addActionListener(e -> launcher.navigateTo(Launcher.UNLOAD_HELP));
+
+        return Theme.toolbar(left, howToUseBtn);
     }
-
-    private JPanel vcenter(JPanel p) { JPanel w = new JPanel(new GridBagLayout()); w.setOpaque(false); w.add(p); return w; }
 
     private JPanel buildCenter() {
         JPanel p = new JPanel(new GridBagLayout());
@@ -106,32 +101,80 @@ public class UnloadToInsertPanel extends JPanel {
         g.insets = new Insets(5, 0, 5, 0);
         g.weightx = 1;
 
-        selectArea.setRows(7); unloadArea.setRows(7); outputArea.setRows(12);
+        selectArea.setRows(7); ddlArea.setRows(7); unloadArea.setRows(7); outputArea.setRows(12);
+        outputArea.setEditable(false);
 
-        g.gridy = 0; g.weighty = 0.25;
-        p.add(makeSection("SELECT STATEMENT", selectArea, Theme.ACCENT), g);
+        g.gridy = 0; g.weighty = 0.28;
+        p.add(buildTopRow(), g);
 
-        g.gridy = 1; g.weighty = 0.25;
-        p.add(makeSection("UNLOAD ROWS  —  one per line", unloadArea, ACCENT_BLUE), g);
+        g.gridy = 1; g.weighty = 0.22;
+        p.add(makeSection("Unload Rows — One per Line", unloadArea, ACCENT_BLUE), g);
 
         g.gridy = 2; g.weighty = 0.5;
-        p.add(makeSection("GENERATED INSERT STATEMENTS", outputArea, ACCENT_PINK), g);
+        p.add(buildOutputSection(), g);
 
-        outputArea.setEditable(false);
         return p;
     }
 
+    private JPanel buildTopRow() {
+        JPanel row = new JPanel(new GridLayout(1, 2, 10, 0));
+        row.setBackground(Theme.BG_BASE);
+        row.add(makeSection("Select Statement", selectArea, Theme.ACCENT));
+        row.add(buildDdlSection());
+        return row;
+    }
+
+    /** Read-only generated output — styled as a log/output panel per the shared theme. */
+    private JPanel buildOutputSection() {
+        JPanel panel = Theme.logPanel("Generated Insert Statements", ACCENT_PINK, outputArea, () -> outputArea.setText(""));
+        panel.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
+        return panel;
+    }
+
     private JPanel makeSection(String title, JTextArea ta, Color accent) {
+        JPanel header = Theme.sectionHeader(title, accent);
+        JScrollPane scroll = new JScrollPane(ta);
+        Theme.styleScrollPane(scroll, accent);
+        return wrapSection(header, scroll, accent);
+    }
+
+    private JPanel buildDdlSection() {
+        JPanel header = Theme.sectionHeader("Table DDL (optional — enables accurate typing)", Theme.WARN);
+
+        JPanel controls = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
+        controls.setOpaque(false);
+
+        ddlComboBox = Theme.comboBox(new String[]{DDL_PLACEHOLDER});
+        ddlComboBox.setPreferredSize(new Dimension(150, 24));
+        ddlComboBox.addActionListener(e -> { if (!suppressComboEvents) loadSelectedDdl(); });
+
+        JButton saveBtn   = Theme.ghostButton("⬇  Save");
+        JButton updateBtn = Theme.ghostButton("↻  Update");
+        JButton deleteBtn = Theme.ghostButton("✕  Delete");
+
+        saveBtn.addActionListener(e -> saveDdlAs());
+        updateBtn.addActionListener(e -> updateSelectedDdl());
+        deleteBtn.addActionListener(e -> deleteSelectedDdl());
+
+        controls.add(ddlComboBox);
+        controls.add(saveBtn);
+        controls.add(updateBtn);
+        controls.add(deleteBtn);
+        header.add(controls, BorderLayout.EAST);
+
+        JScrollPane scroll = new JScrollPane(ddlArea);
+        Theme.styleScrollPane(scroll, Theme.WARN);
+
+        refreshDdlComboBox(null);
+        return wrapSection(header, scroll, Theme.WARN);
+    }
+
+    /** Wraps a header + scroll pane in the shared rounded, soft-accented section chrome. */
+    private JPanel wrapSection(JPanel header, JScrollPane scroll, Color accent) {
         JPanel p = new JPanel(new BorderLayout(0, 0));
         p.setBackground(Theme.BG_BASE);
         p.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
 
-        JPanel header = Theme.sectionHeader(title, accent);
-
-        JScrollPane scroll = new JScrollPane(ta);
-        Theme.styleScrollPane(scroll, accent);
-
-        // Neon border around the whole section
         JPanel wrap = new JPanel(new BorderLayout()) {
             @Override protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
@@ -152,19 +195,6 @@ public class UnloadToInsertPanel extends JPanel {
         return p;
     }
 
-    private JPanel buildStatusBar() {
-        JPanel bar = new JPanel(new BorderLayout());
-        bar.setBackground(Theme.BG_SURFACE);
-        bar.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, Theme.BORDER_DIM));
-
-        statusLabel = new JLabel("  paste a SELECT and unload rows, then click GENERATE");
-        statusLabel.setFont(Theme.FONT_LABEL);
-        statusLabel.setForeground(Theme.TEXT_DIM);
-        statusLabel.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
-        bar.add(statusLabel, BorderLayout.WEST);
-        return bar;
-    }
-
     // ── Core logic (unchanged from original) ─────────────────────────────────
     private void generate() {
         outputArea.setText(""); status("generating…", Theme.TEXT_SECONDARY);
@@ -177,6 +207,10 @@ public class UnloadToInsertPanel extends JPanel {
 
         String table = detectTable(sel);
         if (table.isEmpty()) { status("✗  could not detect table name from SELECT.", Theme.ERROR); return; }
+
+        Map<String, ColumnType> ddlTypes = parseDdlColumnTypes(ddlArea.getText().trim());
+        int typedCols = 0;
+        for (String c : columns) if (ddlTypes.containsKey(c.toUpperCase())) typedCols++;
 
         String delim = delimCustomCb.isSelected() ? delimField.getText() : "|";
         if (delim.isEmpty()) delim = "|";
@@ -192,10 +226,195 @@ public class UnloadToInsertPanel extends JPanel {
                         .append(" values, got ").append(vals.length).append("\n-- raw: ").append(raw).append("\n\n");
                 count++; continue;
             }
-            sb.append(buildInsert(table, columns, vals)).append("\n"); count++;
+            sb.append(buildInsert(table, columns, vals, ddlTypes)).append("\n"); count++;
         }
         outputArea.setText(sb.toString().trim());
-        status("✓  "+count+" INSERT(s) generated  —  table: "+table+"  —  columns: "+columns.size(), Theme.SUCCESS);
+        String typingNote = ddlTypes.isEmpty() ? "no DDL — auto-detected types"
+                : typedCols+"/"+columns.size()+" columns typed from DDL";
+        status("✓  "+count+" INSERT(s) generated  —  table: "+table+"  —  columns: "+columns.size()+"  —  "+typingNote, Theme.SUCCESS);
+    }
+
+    // ── Saved DDL management ─────────────────────────────────────────────────
+    /** Directory containing the running jar (or classes dir, when run from an IDE). */
+    private File getAppDir() {
+        try {
+            File loc = new File(UnloadToInsertPanel.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+            return loc.isFile() ? loc.getParentFile() : loc;
+        } catch (URISyntaxException | NullPointerException ex) {
+            return new File(".");
+        }
+    }
+
+    private File getDdlStoreDir() {
+        File dir = new File(getAppDir(), DDL_STORE_DIRNAME);
+        if (!dir.exists()) dir.mkdirs();
+        return dir;
+    }
+
+    private File ddlFile(String name) {
+        String safe = name.trim().replaceAll("[^a-zA-Z0-9_.-]", "_");
+        return new File(getDdlStoreDir(), safe + ".ddl");
+    }
+
+    private List<String> listSavedDdlNames() {
+        File[] files = getDdlStoreDir().listFiles((d, n) -> n.toLowerCase().endsWith(".ddl"));
+        List<String> names = new ArrayList<>();
+        if (files != null) for (File f : files) names.add(f.getName().replaceAll("(?i)\\.ddl$", ""));
+        names.sort(String.CASE_INSENSITIVE_ORDER);
+        return names;
+    }
+
+    private void refreshDdlComboBox(String selectName) {
+        suppressComboEvents = true;
+        ddlComboBox.removeAllItems();
+        ddlComboBox.addItem(DDL_PLACEHOLDER);
+        for (String n : listSavedDdlNames()) ddlComboBox.addItem(n);
+        ddlComboBox.setSelectedItem(selectName != null ? selectName : DDL_PLACEHOLDER);
+        suppressComboEvents = false;
+    }
+
+    private String detectDdlTableName(String ddl) {
+        Matcher m = Pattern.compile("(?i)CREATE\\s+TABLE\\s+([\\w.\"]+)").matcher(ddl);
+        return m.find() ? m.group(1).replaceAll("\"", "") : "";
+    }
+
+    private void saveDdlAs() {
+        String ddl = ddlArea.getText().trim();
+        if (ddl.isEmpty()) { status("✗  nothing to save — paste a DDL first.", Theme.ERROR); return; }
+
+        String suggested = detectDdlTableName(ddl);
+        String name = JOptionPane.showInputDialog(this, "Save DDL as:", suggested.isEmpty() ? "my_table" : suggested);
+        if (name == null || name.trim().isEmpty()) return;
+        name = name.trim();
+
+        File f = ddlFile(name);
+        if (f.exists()) {
+            int c = JOptionPane.showConfirmDialog(this, "\""+name+"\" already exists. Overwrite?",
+                    "Confirm overwrite", JOptionPane.YES_NO_OPTION);
+            if (c != JOptionPane.YES_OPTION) return;
+        }
+        try {
+            Files.write(f.toPath(), ddl.getBytes(StandardCharsets.UTF_8));
+            refreshDdlComboBox(name);
+            status("✓  DDL saved as \""+name+"\".", Theme.SUCCESS);
+        } catch (IOException ex) {
+            status("✗  could not save DDL: "+ex.getMessage(), Theme.ERROR);
+        }
+    }
+
+    private void updateSelectedDdl() {
+        Object sel = ddlComboBox.getSelectedItem();
+        if (sel == null || ddlComboBox.getSelectedIndex() <= 0) {
+            status("✗  select a saved DDL from the dropdown first.", Theme.ERROR); return;
+        }
+        String ddl = ddlArea.getText().trim();
+        if (ddl.isEmpty()) { status("✗  nothing to save — paste a DDL first.", Theme.ERROR); return; }
+        try {
+            Files.write(ddlFile((String) sel).toPath(), ddl.getBytes(StandardCharsets.UTF_8));
+            status("✓  DDL \""+sel+"\" updated.", Theme.SUCCESS);
+        } catch (IOException ex) {
+            status("✗  could not update DDL: "+ex.getMessage(), Theme.ERROR);
+        }
+    }
+
+    private void deleteSelectedDdl() {
+        Object sel = ddlComboBox.getSelectedItem();
+        if (sel == null || ddlComboBox.getSelectedIndex() <= 0) {
+            status("✗  select a saved DDL from the dropdown first.", Theme.ERROR); return;
+        }
+        int c = JOptionPane.showConfirmDialog(this, "Delete saved DDL \""+sel+"\"?",
+                "Confirm delete", JOptionPane.YES_NO_OPTION);
+        if (c != JOptionPane.YES_OPTION) return;
+
+        File f = ddlFile((String) sel);
+        if (f.exists() && f.delete()) {
+            refreshDdlComboBox(null);
+            ddlArea.setText("");
+            status("✓  DDL \""+sel+"\" deleted.", Theme.SUCCESS);
+        } else {
+            status("✗  could not delete DDL file.", Theme.ERROR);
+        }
+    }
+
+    private void loadSelectedDdl() {
+        Object sel = ddlComboBox.getSelectedItem();
+        if (sel == null || ddlComboBox.getSelectedIndex() <= 0) return;
+        try {
+            byte[] bytes = Files.readAllBytes(ddlFile((String) sel).toPath());
+            ddlArea.setText(new String(bytes, StandardCharsets.UTF_8));
+            status("✓  loaded DDL \""+sel+"\".", Theme.SUCCESS);
+        } catch (IOException ex) {
+            status("✗  could not load DDL: "+ex.getMessage(), Theme.ERROR);
+        }
+    }
+
+    // ── DDL-aware typing ──────────────────────────────────────────────────────
+    private static class ColumnType {
+        String category;   // STRING, NUMBER, DATE, DATETIME, UNKNOWN
+        String qualifier;   // DATETIME qualifier text, e.g. "YEAR TO SECOND" / "HOUR TO SECOND"
+    }
+
+    /** Parses a CREATE TABLE DDL into a map of UPPERCASE column name -> ColumnType. */
+    private Map<String, ColumnType> parseDdlColumnTypes(String ddl) {
+        Map<String, ColumnType> map = new LinkedHashMap<>();
+        if (ddl == null || ddl.isEmpty()) return map;
+
+        String block = extractParenBlock(ddl);
+        if (block.isEmpty()) return map;
+
+        for (String defRaw : splitTopLevelCommas(block)) {
+            String def = defRaw.replaceAll("--.*", "").trim();
+            if (def.isEmpty()) continue;
+
+            String upperDef = def.toUpperCase();
+            if (upperDef.startsWith("PRIMARY") || upperDef.startsWith("FOREIGN")
+                    || upperDef.startsWith("CONSTRAINT") || upperDef.startsWith("UNIQUE")
+                    || upperDef.startsWith("CHECK")   || upperDef.startsWith("INDEX")
+                    || upperDef.startsWith("KEY"))    continue;
+
+            String[] tokens = def.split("\\s+");
+            if (tokens.length < 2) continue;
+
+            String colName  = tokens[0].replaceAll("[\"'`]", "").toUpperCase();
+            String baseType = tokens[1].replaceAll("\\(.*", "").toUpperCase();
+
+            ColumnType ct = new ColumnType();
+            if (baseType.contains("CHAR") || baseType.equals("TEXT") || baseType.contains("VARCHAR")) {
+                ct.category = "STRING";
+            } else if (baseType.equals("DATETIME")) {
+                ct.category = "DATETIME";
+                StringBuilder qual = new StringBuilder();
+                for (int i = 2; i < tokens.length; i++) {
+                    String t = tokens[i].toUpperCase().replaceAll("[,;]", "");
+                    if (t.isEmpty()) continue;
+                    if (t.equals("NOT") || t.equals("NULL") || t.equals("DEFAULT")
+                            || t.equals("PRIMARY") || t.equals("UNIQUE")) break;
+                    qual.append(qual.length() > 0 ? " " : "").append(t);
+                }
+                ct.qualifier = qual.length() > 0 ? qual.toString() : null;
+            } else if (baseType.equals("DATE")) {
+                ct.category = "DATE";
+            } else if (baseType.matches("INT(EGER)?8?|SMALLINT|BIGINT|SERIAL8?|DECIMAL|NUMERIC|FLOAT|DOUBLE|MONEY|REAL")) {
+                ct.category = "NUMBER";
+            } else {
+                ct.category = "UNKNOWN";
+            }
+            map.put(colName, ct);
+        }
+        return map;
+    }
+
+    /** Returns the text inside the first top-level parenthesis block, e.g. the column list of a CREATE TABLE. */
+    private String extractParenBlock(String ddl) {
+        int start = ddl.indexOf('(');
+        if (start < 0) return "";
+        int depth = 0;
+        for (int i = start; i < ddl.length(); i++) {
+            char c = ddl.charAt(i);
+            if (c == '(') depth++;
+            else if (c == ')') { depth--; if (depth == 0) return ddl.substring(start+1, i); }
+        }
+        return ddl.substring(start+1);
     }
 
     private List<String> parseColumns(String sql) {
@@ -232,13 +451,50 @@ public class UnloadToInsertPanel extends JPanel {
         return m.find() ? m.group(1).replaceAll(";","").trim() : "";
     }
 
-    private String buildInsert(String table, List<String> cols, String[] vals) {
+    private String buildInsert(String table, List<String> cols, String[] vals, Map<String, ColumnType> ddlTypes) {
         StringBuilder sb = new StringBuilder();
         sb.append("INSERT INTO ").append(table).append("\n    (");
         for (int i=0;i<cols.size();i++) { if(i>0) sb.append(", "); sb.append(cols.get(i)); }
         sb.append(")\nVALUES\n    (");
-        for (int i=0;i<vals.length;i++) { if(i>0) sb.append(", "); sb.append(formatValue(vals[i])); }
+        for (int i=0;i<vals.length;i++) {
+            if(i>0) sb.append(", ");
+            ColumnType ct = ddlTypes.get(cols.get(i).toUpperCase());
+            sb.append(formatValue(vals[i], ct));
+        }
         sb.append(");"); return sb.toString();
+    }
+
+    /** Formats a value using its known DDL column type when available, otherwise falls back to shape-based auto-detection. */
+    private String formatValue(String v, ColumnType type) {
+        if (v==null||v.trim().isEmpty()) return "NULL"; v=v.trim();
+        if (type == null || type.category == null || type.category.equals("UNKNOWN")) return formatValue(v);
+
+        switch (type.category) {
+            case "STRING":
+                return "'"+v.replace("'","''")+"'";
+            case "NUMBER":
+                return v.matches("-?\\d+(\\.\\d+)?") ? v : "'"+v.replace("'","''")+"'";
+            case "DATE":
+                if (v.matches("\\d{4}-\\d{2}-\\d{2}")) return "TO_DATE('"+v+"', '%Y-%m-%d')";
+                if (v.matches("\\d{2}/\\d{2}/\\d{4}")) return "TO_DATE('"+v+"', '%m/%d/%Y')";
+                return formatValue(v);
+            case "DATETIME": {
+                if (v.matches("\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}")) {
+                    String qual = type.qualifier != null ? type.qualifier : "YEAR TO SECOND";
+                    return "DATETIME("+v.replace('T',' ')+") "+qual;
+                }
+                if (v.matches("\\d{2}/\\d{2}/\\d{4} \\d{2}:\\d{2}:\\d{2}")) {
+                    return "TO_DATETIME('"+v+"', '%m/%d/%Y %H:%M:%S')";
+                }
+                if (v.matches("\\d{2}:\\d{2}:\\d{2}")) {
+                    String qual = type.qualifier != null ? type.qualifier : "HOUR TO SECOND";
+                    return "DATETIME("+v+") "+qual;
+                }
+                return formatValue(v);
+            }
+            default:
+                return formatValue(v);
+        }
     }
 
     private String formatValue(String v) {
@@ -259,482 +515,44 @@ public class UnloadToInsertPanel extends JPanel {
         status("✓  copied to clipboard.", Theme.SUCCESS);
     }
 
-    private void clearAll() { selectArea.setText(""); unloadArea.setText(""); outputArea.setText(""); status(" ", Theme.TEXT_DIM); }
-    private void status(String msg, Color c) { statusLabel.setText("  "+msg); statusLabel.setForeground(c); }
+    private void clearAll() {
+        selectArea.setText(""); ddlArea.setText(""); unloadArea.setText(""); outputArea.setText("");
+        suppressComboEvents = true; ddlComboBox.setSelectedItem(DDL_PLACEHOLDER); suppressComboEvents = false;
+        status(" ", Theme.TEXT_DIM);
+    }
+    private void status(String msg, Color c) { statusBar.set(msg, c); }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // HELP PAGE
+    // ══════════════════════════════════════════════════════════════════════════
+
+    public JPanel createHelpPanel() {
+        String html = ""
+                + "<h2>Unload to Insert</h2>"
+                + "<p>Converts raw UNLOAD/export rows into ready-to-run <code>INSERT</code> statements, "
+                + "using a SELECT statement to know the column order and (optionally) a table DDL to help "
+                + "with type-aware value formatting.</p>"
+                + "<h3>Steps</h3>"
+                + "<ol>"
+                + "<li>Paste your <b>Select Statement</b> — its column list defines the column order used "
+                + "for every generated <code>INSERT</code>.</li>"
+                + "<li>Paste your <b>Unload Rows</b> — one row per line, fields separated by the delimiter "
+                + "(<code>|</code> by default).</li>"
+                + "<li>Optionally paste a <b>Table DDL</b> — this lets values be formatted more precisely "
+                + "(dates, numbers, etc. instead of plain quoted strings).</li>"
+                + "<li>Click <b>Generate</b> to build the <code>INSERT</code> statements in the output panel.</li>"
+                + "</ol>"
+                + "<h3>Delimiter</h3>"
+                + "<p>Defaults to <code>|</code>. Tick <b>Custom</b> to type a different delimiter for your "
+                + "unload rows.</p>"
+                + "<h3>Saving a DDL for reuse</h3>"
+                + "<p>Paste a DDL, then use <b>Save</b> to store it under a name for later reuse from the "
+                + "dropdown. <b>Update</b> overwrites the currently selected saved DDL with what's in the box; "
+                + "<b>Delete</b> removes it.</p>"
+                + "<h3>Output</h3>"
+                + "<p><b>Copy Output</b> copies the generated statements to your clipboard. <b>Clear All</b> "
+                + "resets every field, including the DDL selection.</p>";
+        return Theme.helpPage("Unload to Insert — How to Use", ACCENT_PINK, html,
+                () -> launcher.navigateTo(Launcher.UNLOAD));
+    }
 }
-//package com.utilities.UnloadToInsert;
-//
-//import javax.swing.*;
-//import javax.swing.border.*;
-//import javax.swing.event.*;
-//import java.awt.*;
-//import java.awt.datatransfer.*;
-//import java.awt.event.*;
-//import java.util.*;
-//import java.util.List;
-//import java.util.regex.*;
-//
-///**
-// * UnloadToInsert — GUI tool to generate SQL INSERT statements
-// * from a SELECT query + pipe-delimited unload rows.
-// *
-// * Compile:  javac UnloadToInsert.java
-// * Run:      java UnloadToInsert
-// * Package:  jar cfe UnloadToInsert.jar UnloadToInsert *.class
-// */
-//public class UnloadToInsert extends JFrame {
-//
-//    // ── UI colours ────────────────────────────────────────────────────────────
-//    private static final Color BG        = new Color(18, 20, 28);
-//    private static final Color PANEL_BG  = new Color(26, 29, 40);
-//    private static final Color BORDER_C  = new Color(55, 60, 80);
-//    private static final Color ACCENT    = new Color(82, 160, 255);
-//    private static final Color ACCENT2   = new Color(120, 220, 160);
-//    private static final Color FG        = new Color(220, 225, 240);
-//    private static final Color FG_DIM    = new Color(130, 140, 165);
-//    private static final Color BTN_BG    = new Color(40, 90, 170);
-//    private static final Color BTN_HOV   = new Color(55, 115, 215);
-//    private static final Color OUT_BG    = new Color(14, 16, 22);
-//
-//    private static final Font  MONO      = new Font("Monospaced", Font.PLAIN, 13);
-//    private static final Font  LABEL_F   = new Font("SansSerif", Font.BOLD,  12);
-//    private static final Font  TITLE_F   = new Font("SansSerif", Font.BOLD,  18);
-//
-//    // ── Widgets ───────────────────────────────────────────────────────────────
-//    private final JTextArea selectArea  = makeTextArea(8);
-//    private final JTextArea unloadArea  = makeTextArea(8);
-//    private final JTextArea outputArea  = makeTextArea(14);
-//    private final JLabel    statusLabel = new JLabel(" ");
-//    private final JTextField  delimField   = new JTextField("|", 4);
-//    private final JCheckBox   delimCustomCb = new JCheckBox("Custom");
-//
-//    // ─────────────────────────────────────────────────────────────────────────
-//    public UnloadToInsert() {
-//        super("Unload → INSERT Generator");
-//        setDefaultCloseOperation(EXIT_ON_CLOSE);
-//        setPreferredSize(new Dimension(980, 780));
-//        setBackground(BG);
-//        buildUI();
-//        pack();
-//        setLocationRelativeTo(null);
-//        setVisible(true);
-//    }
-//
-//    // ── Build UI ──────────────────────────────────────────────────────────────
-//    private void buildUI() {
-//        JPanel root = new JPanel(new BorderLayout(0, 0));
-//        root.setBackground(BG);
-//        root.setBorder(BorderFactory.createEmptyBorder(18, 18, 12, 18));
-//        setContentPane(root);
-//
-//        root.add(buildHeader(),  BorderLayout.NORTH);
-//        root.add(buildCenter(), BorderLayout.CENTER);
-//        root.add(buildStatus(), BorderLayout.SOUTH);
-//    }
-//
-//    private JPanel buildHeader() {
-//        JPanel p = new JPanel(new BorderLayout());
-//        p.setBackground(BG);
-//        p.setBorder(BorderFactory.createEmptyBorder(0, 0, 14, 0));
-//
-//        JLabel title = new JLabel("⬡  Unload → INSERT Generator");
-//        title.setFont(TITLE_F);
-//        title.setForeground(ACCENT);
-//        p.add(title, BorderLayout.WEST);
-//
-//        JLabel hint = new JLabel("Paste SELECT, delimited unload rows, click Generate");
-//        hint.setFont(new Font("SansSerif", Font.PLAIN, 12));
-//        hint.setForeground(FG_DIM);
-//        p.add(hint, BorderLayout.EAST);
-//        return p;
-//    }
-//
-//    private JPanel buildCenter() {
-//        JPanel p = new JPanel(new GridBagLayout());
-//        p.setBackground(BG);
-//        GridBagConstraints g = new GridBagConstraints();
-//        g.fill = GridBagConstraints.BOTH;
-//        g.insets = new Insets(5, 0, 5, 0);
-//        g.weightx = 1;
-//
-//        // ── Delimiter row ─────────────────────────────────────────────────
-//        g.gridy = 0; g.weighty = 0;
-//        JPanel delimRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
-//        delimRow.setBackground(BG);
-//        delimRow.add(makeLabel("Delimiter:"));
-//        styleTextField(delimField);
-//        delimField.setDisabledTextColor(new Color(180, 185, 200));
-//        delimField.setEnabled(false);
-//        delimCustomCb.setBackground(BG);
-//        delimCustomCb.setForeground(FG);
-//        delimCustomCb.setFont(LABEL_F);
-//        delimCustomCb.setFocusPainted(false);
-//        delimCustomCb.addActionListener(e -> delimField.setEnabled(delimCustomCb.isSelected()));
-//        delimRow.add(delimField);
-//        delimRow.add(delimCustomCb);
-//        p.add(delimRow, g);
-//
-//        // ── SELECT ────────────────────────────────────────────────────────
-//        g.gridy = 1; g.weighty = 0.3;
-//        p.add(makeSection("SELECT Statement", selectArea, ACCENT), g);
-//
-//        // ── Unload rows ───────────────────────────────────────────────────
-//        g.gridy = 2; g.weighty = 0.3;
-//        p.add(makeSection("Unload Rows  (one per line)", unloadArea, ACCENT2), g);
-//
-//        // ── Buttons row ───────────────────────────────────────────────────
-//        g.gridy = 3; g.weighty = 0;
-//        p.add(buildButtonRow(), g);
-//
-//        // ── Output ────────────────────────────────────────────────────────
-//        g.gridy = 4; g.weighty = 0.4;
-//        p.add(makeSection("Generated INSERT Statements", outputArea, new Color(200,160,90)), g);
-//
-//        return p;
-//    }
-//
-//    private JPanel buildButtonRow() {
-//        JPanel p = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 4));
-//        p.setBackground(BG);
-//
-//        JButton genBtn   = makeButton("▶  Generate INSERTs", BTN_BG, BTN_HOV);
-//        JButton copyBtn  = makeButton("⎘  Copy Output",      new Color(45,100,60), new Color(60,130,80));
-//        JButton clearBtn = makeButton("✕  Clear All",        new Color(90,35,35),  new Color(120,50,50));
-//
-//        genBtn.addActionListener(e -> generate());
-//        copyBtn.addActionListener(e -> copyOutput());
-//        clearBtn.addActionListener(e -> clearAll());
-//
-//        p.add(genBtn);
-//        p.add(copyBtn);
-//        p.add(clearBtn);
-//        return p;
-//    }
-//
-//    private JPanel buildStatus() {
-//        JPanel p = new JPanel(new BorderLayout());
-//        p.setBackground(BG);
-//        p.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
-//        statusLabel.setFont(new Font("SansSerif", Font.PLAIN, 12));
-//        statusLabel.setForeground(FG_DIM);
-//        p.add(statusLabel, BorderLayout.WEST);
-//        return p;
-//    }
-//
-//    // ── Core Logic ────────────────────────────────────────────────────────────
-//    private void generate() {
-//        outputArea.setText("");
-//        status("Generating…", FG_DIM);
-//
-//        String selectSQL = selectArea.getText().trim();
-//        String unloadText = unloadArea.getText().trim();
-//
-//        if (selectSQL.isEmpty()) { status("✗  Paste a SELECT statement first.", Color.RED); return; }
-//        if (unloadText.isEmpty()) { status("✗  Paste at least one unload row.", Color.RED); return; }
-//
-//        // ── Parse columns from SELECT ─────────────────────────────────────
-//        List<String> columns;
-//        try {
-//            columns = parseColumns(selectSQL);
-//        } catch (Exception ex) {
-//            status("✗  Could not parse columns: " + ex.getMessage(), Color.RED);
-//            return;
-//        }
-//
-//        // ── Detect table name ─────────────────────────────────────────────
-//        String table = detectTable(selectSQL);
-//        if (table.isEmpty()) {
-//            status("✗  Could not detect table name from SELECT.", Color.RED);
-//            return;
-//        }
-//
-//        // ── Parse unload rows ─────────────────────────────────────────────
-//        String[] rows = unloadText.split("\\r?\\n");
-//        StringBuilder sb = new StringBuilder();
-//        int count = 0;
-//
-//        for (String raw : rows) {
-//            raw = raw.trim();
-//            if (raw.isEmpty()) continue;
-//
-//            // Strip trailing delimiter then split
-//            String delim = delimField.getText();
-//            if (delim.isEmpty()) delim = "!";
-//            if (raw.endsWith(delim)) raw = raw.substring(0, raw.length() - delim.length());
-//            String[] vals = raw.split(Pattern.quote(delim), -1);
-//
-//            if (vals.length != columns.size()) {
-//                sb.append("-- ⚠ Row ").append(count + 1)
-//                        .append(": expected ").append(columns.size())
-//                        .append(" values, got ").append(vals.length).append("\n");
-//                sb.append("-- RAW: ").append(raw).append("\n\n");
-//                count++;
-//                continue;
-//            }
-//
-//            sb.append(buildInsert(table, columns, vals));
-//            sb.append("\n");
-//            count++;
-//        }
-//
-//        outputArea.setText(sb.toString().trim());
-//        status("✓  " + count + " INSERT(s) generated for table " + table + " and " + columns.size() + " columns detected.", ACCENT2);
-//    }
-//
-//    /**
-//     * Parses column names/aliases from a SELECT … FROM query.
-//     * Handles:  col,  col alias,  col::cast,  col::cast alias,  expression alias
-//     */
-//    private List<String> parseColumns(String sql) {
-//        // Strip leading SELECT keyword
-//        String upper = sql.toUpperCase();
-//        int selIdx = upper.indexOf("SELECT");
-//        int fromIdx = upper.lastIndexOf("\nFROM");
-//        if (fromIdx < 0) fromIdx = upper.lastIndexOf(" FROM");
-//        if (fromIdx < 0) fromIdx = upper.lastIndexOf("\nfrom");
-//
-//        String colPart;
-//        if (selIdx >= 0 && fromIdx > selIdx) {
-//            colPart = sql.substring(selIdx + 6, fromIdx).trim();
-//        } else if (selIdx >= 0) {
-//            colPart = sql.substring(selIdx + 6).trim();
-//        } else {
-//            colPart = sql;
-//        }
-//
-//        // Split on commas (not inside parentheses)
-//        List<String> raw = splitTopLevelCommas(colPart);
-//        List<String> cols = new ArrayList<>();
-//
-//        for (String token : raw) {
-//            token = token.trim();
-//            if (token.isEmpty()) continue;
-//            cols.add(extractAlias(token));
-//        }
-//        return cols;
-//    }
-//
-//    /** Returns alias if present, otherwise the base column name stripped of ::cast. */
-//    private String extractAlias(String expr) {
-//        // Remove inline comments
-//        expr = expr.replaceAll("--.*", "").trim();
-//
-//        // Split by whitespace to look for alias (last word that isn't a cast keyword)
-//        String[] parts = expr.split("\\s+");
-//        if (parts.length >= 2) {
-//            // Last token is alias
-//            String alias = parts[parts.length - 1];
-//            // Remove quotes if any
-//            alias = alias.replaceAll("[\"'`]", "");
-//            return alias;
-//        }
-//
-//        // No alias — strip ::cast and return base name
-//        String base = expr.replaceAll("::.*", "").trim();
-//        // If it contains a dot (table.col), take the col part
-//        if (base.contains(".")) base = base.substring(base.lastIndexOf('.') + 1);
-//        base = base.replaceAll("[\"'`]", "");
-//        return base;
-//    }
-//
-//    /** Top-level comma split (respects parentheses depth). */
-//    private List<String> splitTopLevelCommas(String s) {
-//        List<String> result = new ArrayList<>();
-//        int depth = 0;
-//        StringBuilder cur = new StringBuilder();
-//        for (char c : s.toCharArray()) {
-//            if      (c == '(') { depth++; cur.append(c); }
-//            else if (c == ')') { depth--; cur.append(c); }
-//            else if (c == ',' && depth == 0) {
-//                result.add(cur.toString());
-//                cur.setLength(0);
-//            } else {
-//                cur.append(c);
-//            }
-//        }
-//        if (cur.length() > 0) result.add(cur.toString());
-//        return result;
-//    }
-//
-//    /** Pull table name after FROM keyword. */
-//    private String detectTable(String sql) {
-//        Matcher m = Pattern.compile("(?i)\\bfrom\\s+(\\S+)").matcher(sql);
-//        if (m.find()) {
-//            return m.group(1).replaceAll(";", "").trim();
-//        }
-//        return "";
-//    }
-//
-//    /** Build a single INSERT statement. */
-//    private String buildInsert(String table, List<String> cols, String[] vals) {
-//        StringBuilder sb = new StringBuilder();
-//        sb.append("INSERT INTO ").append(table).append("\n");
-//        sb.append("    (");
-//        for (int i = 0; i < cols.size(); i++) {
-//            if (i > 0) sb.append(", ");
-//            sb.append(cols.get(i));
-//        }
-//        sb.append(")\nVALUES\n    (");
-//        for (int i = 0; i < vals.length; i++) {
-//            if (i > 0) sb.append(", ");
-//            sb.append(formatValue(vals[i]));
-//        }
-//        sb.append(");");
-//        return sb.toString();
-//    }
-//
-//    /**
-//     * Formats a value for use in a Teradata INSERT.
-//     *
-//     * Detection order:
-//     *   1. Empty / blank                  -> NULL
-//     *   2. Pure numeric                   -> unquoted number
-//     *   3. TIMESTAMP  YYYY-MM-DD HH:MM:SS -> TO_TIMESTAMP('...', 'YYYY-MM-DDBHH:MI:SS')
-//     *   4. TIMESTAMP  MM/DD/YYYY HH:MM:SS -> TO_TIMESTAMP('...', 'MM/DD/YYYYBHH:MI:SS')
-//     *   5. TIME       HH:MM:SS            -> TIME '...'
-//     *   6. DATE       YYYY-MM-DD          -> DATE '...'
-//     *   7. DATE       MM/DD/YYYY          -> TO_DATE('...', 'MM/DD/YYYY')
-//     *   8. Anything else                  -> quoted string
-//     */
-//    private String formatValue(String v) {
-//        if (v == null || v.trim().isEmpty()) return "NULL";
-//        v = v.trim();
-//
-//        // Numeric
-//        if (v.matches("-?\\d+(\\.\\d+)?")) return v;
-//
-//        // TIMESTAMP: YYYY-MM-DD HH:MM:SS  (space or T separator)
-//        // -> DATETIME(YYYY-MM-DD HH:MM:SS) YEAR TO SECOND
-//        if (v.matches("\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}")) {
-//            String norm = v.replace('T', ' ');
-//            return "DATETIME(" + norm + ") YEAR TO SECOND";
-//        }
-//
-//        // TIMESTAMP: MM/DD/YYYY HH:MM:SS
-//        // -> TO_DATETIME('MM/DD/YYYY HH:MM:SS', '%m/%d/%Y %H:%M:%S')
-//        if (v.matches("\\d{2}/\\d{2}/\\d{4} \\d{2}:\\d{2}:\\d{2}")) {
-//            return "TO_DATETIME('" + v + "', '%m/%d/%Y %H:%M:%S')";
-//        }
-//
-//        // TIME: HH:MM:SS
-//        // -> DATETIME(HH:MM:SS) HOUR TO SECOND
-//        if (v.matches("\\d{2}:\\d{2}:\\d{2}")) {
-//            return "DATETIME(" + v + ") HOUR TO SECOND";
-//        }
-//
-//        // DATE: YYYY-MM-DD
-//        // -> TO_DATE('YYYY-MM-DD', '%Y-%m-%d')
-//        if (v.matches("\\d{4}-\\d{2}-\\d{2}")) {
-//            return "TO_DATE('" + v + "', '%Y-%m-%d')";
-//        }
-//
-//        // DATE: MM/DD/YYYY
-//        // -> TO_DATE('MM/DD/YYYY', '%m/%d/%Y')
-//        if (v.matches("\\d{2}/\\d{2}/\\d{4}")) {
-//            return "TO_DATE('" + v + "', '%m/%d/%Y')";
-//        }
-//
-//        // Plain string
-//        return "'" + v.replace("'", "''") + "'";
-//    }
-//
-//    // ── Actions ───────────────────────────────────────────────────────────────
-//    private void copyOutput() {
-//        String text = outputArea.getText();
-//        if (text.isEmpty()) { status("Nothing to copy.", FG_DIM); return; }
-//        Toolkit.getDefaultToolkit().getSystemClipboard()
-//                .setContents(new StringSelection(text), null);
-//        status("✓  Copied to clipboard.", ACCENT2);
-//    }
-//
-//    private void clearAll() {
-//        selectArea.setText("");
-//        unloadArea.setText("");
-//        outputArea.setText("");
-//        status(" ", FG_DIM);
-//    }
-//
-//    private void status(String msg, Color c) {
-//        statusLabel.setText(msg);
-//        statusLabel.setForeground(c);
-//    }
-//
-//    // ── Widget helpers ────────────────────────────────────────────────────────
-//    private JTextArea makeTextArea(int rows) {
-//        JTextArea ta = new JTextArea(rows, 60);
-//        ta.setFont(MONO);
-//        ta.setBackground(OUT_BG);
-//        ta.setForeground(FG);
-//        ta.setCaretColor(ACCENT);
-//        ta.setLineWrap(false);
-//        ta.setTabSize(4);
-//        ta.setSelectedTextColor(Color.WHITE);
-//        ta.setSelectionColor(new Color(60, 100, 180));
-//        ta.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
-//        return ta;
-//    }
-//
-//    private JScrollPane scrollWrap(JTextArea ta) {
-//        JScrollPane sp = new JScrollPane(ta,
-//                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
-//                JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-//        sp.setBorder(BorderFactory.createLineBorder(BORDER_C));
-//        sp.getViewport().setBackground(OUT_BG);
-//        return sp;
-//    }
-//
-//    private JPanel makeSection(String title, JTextArea ta, Color accent) {
-//        JPanel p = new JPanel(new BorderLayout(0, 4));
-//        p.setBackground(BG);
-//        p.setBorder(BorderFactory.createEmptyBorder(0, 0, 2, 0));
-//
-//        JLabel lbl = new JLabel(title);
-//        lbl.setFont(LABEL_F);
-//        lbl.setForeground(accent);
-//        p.add(lbl, BorderLayout.NORTH);
-//        p.add(scrollWrap(ta), BorderLayout.CENTER);
-//        return p;
-//    }
-//
-//    private JLabel makeLabel(String text) {
-//        JLabel l = new JLabel(text);
-//        l.setFont(LABEL_F);
-//        l.setForeground(FG_DIM);
-//        return l;
-//    }
-//
-//    private void styleTextField(JTextField tf) {
-//        tf.setFont(MONO);
-//        tf.setBackground(OUT_BG);
-//        tf.setForeground(Color.WHITE);
-//        tf.setCaretColor(ACCENT);
-//        tf.setOpaque(true);
-//        tf.setBorder(BorderFactory.createCompoundBorder(
-//                BorderFactory.createLineBorder(BORDER_C),
-//                BorderFactory.createEmptyBorder(4, 8, 4, 8)));
-//    }
-//
-//    private JButton makeButton(String label, Color bg, Color hover) {
-//        JButton btn = new JButton(label);
-//        btn.setFont(new Font("SansSerif", Font.BOLD, 13));
-//        btn.setBackground(bg);
-//        btn.setForeground(Color.WHITE);
-//        btn.setFocusPainted(false);
-//        btn.setBorderPainted(false);
-//        btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-//        btn.setBorder(BorderFactory.createEmptyBorder(8, 18, 8, 18));
-//        btn.addMouseListener(new MouseAdapter() {
-//            public void mouseEntered(MouseEvent e) { btn.setBackground(hover); }
-//            public void mouseExited (MouseEvent e) { btn.setBackground(bg);    }
-//        });
-//        return btn;
-//    }
-//
-//    // ── Entry point ───────────────────────────────────────────────────────────
-//    public static void main(String[] args) {
-//        try {
-//            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-//        } catch (Exception ignored) {}
-//        SwingUtilities.invokeLater(UnloadToInsert::new);
-//    }
-//}

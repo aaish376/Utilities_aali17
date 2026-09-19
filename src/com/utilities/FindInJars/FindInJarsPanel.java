@@ -4,7 +4,6 @@ import com.utilities.Launcher;
 import com.utilities.Theme.Theme;
 
 import javax.swing.*;
-import javax.swing.border.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.io.*;
@@ -18,25 +17,32 @@ public class FindInJarsPanel extends JPanel {
     private final Launcher launcher;
 
     // ── Accent for this panel ─────────────────────────────────────────────────
-    private static final Color PANEL_ACCENT = new Color(0x00E5FF);   // cyan
-    private static final Color TAG_BG       = new Color(0x002A30);
-    private static final Color TAG_BORDER   = new Color(0x004D5A);
-    private static final Font  COURIER_B10  = new Font("Courier New", Font.BOLD,  10);
-    private static final Font  COURIER_11   = new Font("Courier New", Font.PLAIN, 11);
-    private static final Font  COURIER_13   = new Font("Courier New", Font.PLAIN, 13);
-    private static final Font  COURIER_B15  = new Font("Courier New", Font.BOLD,  15);
+    private static final Color PANEL_ACCENT = new Color(0x00C2D9);   // cyan
+    private static final Color TYPE_ACCENT  = new Color(0x9B8CFF);   // violet, for the file-type card
+
+    // The file-type options offered in the UI. "ALL" scans every extension listed here.
+    private static final String[] FILE_TYPE_OPTIONS = {
+            "ALL  (.class .java .js .xml)",
+            ".class",
+            ".java",
+            ".js",
+            ".xml"
+    };
+    private static final List<String> ALL_EXTENSIONS =
+            Arrays.asList(".class", ".java", ".js", ".xml");
 
     // ── State ─────────────────────────────────────────────────────────────────
     private JTextField  libPathField;
     private JTextField  outputPathField;
     private JTextField  keywordInputField;
+    private JComboBox<String> fileTypeCombo;
     private JPanel      tagsPanel;
     private JScrollPane tagsScroll;
     private JTextArea   logArea;
     private JButton     findBtn;
     private JButton     openReportBtn;
     private JButton     showInExplorerBtn;
-    private JLabel      statusLabel;
+    private Theme.StatusBar statusBar;
 
     private final List<String> keywords = new ArrayList<>();
     private File lastOutputDir = null;
@@ -53,77 +59,42 @@ public class FindInJarsPanel extends JPanel {
     // ══════════════════════════════════════════════════════════════════════════
 
     private void buildUI() {
-        add(buildToolbar(),    BorderLayout.NORTH);
-        add(buildMainSplit(),  BorderLayout.CENTER);
-        add(buildStatusBar(),  BorderLayout.SOUTH);
+        add(buildToolbar(),   BorderLayout.NORTH);
+        add(buildMainSplit(), BorderLayout.CENTER);
+        statusBar = Theme.statusBar();
+        add(statusBar.panel, BorderLayout.SOUTH);
     }
 
     // ── Toolbar ───────────────────────────────────────────────────────────────
     private JPanel buildToolbar() {
-        JPanel bar = new JPanel(new BorderLayout()) {
-            @Override protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setColor(Theme.BG_SURFACE);
-                g2.fillRect(0, 0, getWidth(), getHeight());
-                g2.setColor(new Color(0,0,0,22));
-                for (int y = 0; y < getHeight(); y += 3) g2.drawLine(0, y, getWidth(), y);
-                g2.setColor(Theme.BORDER_DIM);
-                g2.drawLine(0, getHeight()-1, getWidth(), getHeight()-1);
-                g2.dispose();
-            }
-        };
-        bar.setOpaque(false);
-
-        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 7));
-        left.setOpaque(false);
-
-        JLabel title = new JLabel("JAR INSPECTOR");
-        title.setFont(COURIER_B15);
+        JLabel title = new JLabel("Jar Inspector");
+        title.setFont(Theme.FONT_UI_BOLD);
         title.setForeground(PANEL_ACCENT);
-        title.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 16));
+        title.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 14));
 
-        findBtn = Theme.button("▶  FIND IN JARS");
+        findBtn = Theme.button("▶  Find in Jars");
         findBtn.addActionListener(e -> runSearch());
 
-        openReportBtn = Theme.ghostButton("⎋  OPEN REPORT");
+        openReportBtn = Theme.ghostButton("Open Report");
         openReportBtn.setEnabled(false);
         openReportBtn.addActionListener(e -> openReport());
 
-        showInExplorerBtn = Theme.ghostButton("⬜  SHOW IN EXPLORER");
+        showInExplorerBtn = Theme.ghostButton("Show in Explorer");
         showInExplorerBtn.setEnabled(false);
         showInExplorerBtn.addActionListener(e -> showInExplorer());
 
-        left.add(title);
-        left.add(Theme.vDivider());
-        left.add(findBtn);
-        left.add(openReportBtn);
-        left.add(showInExplorerBtn);
+        JPanel left = Theme.toolRow(title, Theme.vDivider(), findBtn, openReportBtn, showInExplorerBtn);
+        left.setBorder(BorderFactory.createEmptyBorder(0, 12, 0, 0));
 
-        bar.add(vcenter(left), BorderLayout.WEST);
-        bar.setPreferredSize(new Dimension(0, Theme.NAV_HEIGHT + 8));
-        return bar;
+        JButton howToUseBtn = Theme.helpButton("How to Use");
+        howToUseBtn.addActionListener(e -> launcher.navigateTo(Launcher.JFINDER_HELP));
+
+        return Theme.toolbar(left, howToUseBtn);
     }
 
     // ── Main split: left config | right log ───────────────────────────────────
     private JSplitPane buildMainSplit() {
-        JSplitPane split = new JSplitPane(
-                JSplitPane.HORIZONTAL_SPLIT,
-                buildConfigPanel(),
-                buildLogPanel()
-        );
-        split.setDividerLocation(480);
-        split.setResizeWeight(0.45);
-        split.setDividerSize(4);
-        split.setBorder(null);
-        split.setBackground(Theme.BORDER_MID);
-        split.setUI(new javax.swing.plaf.basic.BasicSplitPaneUI() {
-            @Override public javax.swing.plaf.basic.BasicSplitPaneDivider createDefaultDivider() {
-                javax.swing.plaf.basic.BasicSplitPaneDivider d =
-                        new javax.swing.plaf.basic.BasicSplitPaneDivider(this);
-                d.setBackground(Theme.BORDER_MID); d.setBorder(null); return d;
-            }
-        });
-        return split;
+        return Theme.split(buildConfigPanel(), buildLogPanel(), 480, 0.45);
     }
 
     // ── Left: config panel ────────────────────────────────────────────────────
@@ -131,122 +102,89 @@ public class FindInJarsPanel extends JPanel {
         JPanel p = new JPanel();
         p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
         p.setBackground(Theme.BG_BASE);
-        p.setBorder(BorderFactory.createEmptyBorder(14, 14, 14, 8));
+        p.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 10));
 
-        p.add(buildPathCard(
-                "LIBS PATH",
-                "Directory containing JARs, or a single .jar file",
+        p.add(Theme.pathCard(
+                "Libs path",
+                "Directory (scanned recursively — JARs & subfolders included) or a single file",
                 PANEL_ACCENT,
-                true,   // is source
-                field -> libPathField = field
+                field -> libPathField = field,
+                this::browseLibPath
         ));
-        p.add(Box.createVerticalStrut(12));
+        p.add(Box.createVerticalStrut(14));
 
-        p.add(buildPathCard(
-                "OUTPUT PATH  ★ required",
+        p.add(buildFileTypeCard());
+        p.add(Box.createVerticalStrut(14));
+
+        p.add(Theme.pathCard(
+                "Output path  ·  required",
                 "Directory where search_results.js and viewer.html will be saved",
-                new Color(0xFFAA00),
-                false,  // is output dir only
-                field -> outputPathField = field
+                Theme.WARN,
+                field -> outputPathField = field,
+                this::browseOutputDir
         ));
-        p.add(Box.createVerticalStrut(12));
+        p.add(Box.createVerticalStrut(14));
 
         p.add(buildKeywordsCard());
 
         return p;
     }
 
-    /** Reusable path picker card */
-    private JPanel buildPathCard(String title, String hint, Color accent,
-                                 boolean allowFiles, java.util.function.Consumer<JTextField> fieldSetter) {
-        JPanel card = buildCard(title, accent);
-        card.setLayout(new BorderLayout(0, 6));
+    private void browseLibPath(JTextField field) {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
+        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                "JAR files, source files, or directories", "jar", "class", "java", "js", "xml"));
+        chooser.setAcceptAllFileFilterUsed(true);
+        if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+            Theme.setPathValue(field, chooser.getSelectedFile().getAbsolutePath());
+        }
+    }
 
-        JLabel hintLbl = new JLabel(hint);
-        hintLbl.setFont(COURIER_B10);
-        hintLbl.setForeground(Theme.TEXT_DIM);
-        hintLbl.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
+    private void browseOutputDir(JTextField field) {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+            Theme.setPathValue(field, chooser.getSelectedFile().getAbsolutePath());
+        }
+    }
 
-        JTextField field = new JTextField("(not selected)");
-        field.setEditable(false);
-        field.setFont(COURIER_11);
-        field.setForeground(Theme.TEXT_SECONDARY);
-        field.setBackground(Theme.BG_DEEP);
-        field.setBorder(BorderFactory.createCompoundBorder(
-                new LineBorder(Theme.BORDER_MID, 1, true),
-                BorderFactory.createEmptyBorder(5, 9, 5, 9)));
-        fieldSetter.accept(field);
+    // ── File-type filter card ────────────────────────────────────────────────
+    private JPanel buildFileTypeCard() {
+        fileTypeCombo = new JComboBox<>(FILE_TYPE_OPTIONS);
+        Theme.styleComboBox(fileTypeCombo);
+        fileTypeCombo.setSelectedIndex(0);
 
-        JButton browseBtn = Theme.ghostButton("+ BROWSE");
-        browseBtn.addActionListener(e -> {
-            JFileChooser chooser = new JFileChooser();
-            chooser.setFileSelectionMode(allowFiles
-                    ? JFileChooser.FILES_AND_DIRECTORIES
-                    : JFileChooser.DIRECTORIES_ONLY);
-            if (allowFiles) {
-                chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
-                        "JAR files or directories", "jar"));
-                chooser.setAcceptAllFileFilterUsed(true);
-            }
-            if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
-                field.setText(chooser.getSelectedFile().getAbsolutePath());
-                field.setForeground(Theme.TEXT_PRIMARY);
-            }
-        });
-
-        JPanel row = new JPanel(new BorderLayout(6, 0));
-        row.setOpaque(false);
-        row.add(field, BorderLayout.CENTER);
-        row.add(browseBtn, BorderLayout.EAST);
-
-        card.add(hintLbl, BorderLayout.NORTH);
-        card.add(row,     BorderLayout.CENTER);
-
-        JPanel wrap = new JPanel(new BorderLayout());
-        wrap.setOpaque(false);
-        wrap.setMaximumSize(new Dimension(Integer.MAX_VALUE, 110));
-        wrap.add(card, BorderLayout.CENTER);
-        return wrap;
+        return Theme.formCard(
+                "File types",
+                "Only these extensions are scanned — inside JARs and loose on disk",
+                TYPE_ACCENT,
+                fileTypeCombo
+        );
     }
 
     // ── Keywords card ─────────────────────────────────────────────────────────
     private JPanel buildKeywordsCard() {
-        JPanel card = buildCard("SEARCH KEYWORDS", PANEL_ACCENT);
-        card.setLayout(new BorderLayout(0, 8));
-
-        JLabel hintLbl = new JLabel("Type a keyword and press Enter to add  —  click × to remove");
-        hintLbl.setFont(COURIER_B10);
-        hintLbl.setForeground(Theme.TEXT_DIM);
-
         // Input row
-        keywordInputField = new JTextField();
-        keywordInputField.setFont(COURIER_13);
-        keywordInputField.setBackground(Theme.BG_DEEP);
-        keywordInputField.setForeground(Theme.ACCENT_GLOW);
-        keywordInputField.setCaretColor(Theme.ACCENT);
-        keywordInputField.setSelectionColor(Theme.ACCENT_DARK);
-        keywordInputField.setBorder(BorderFactory.createCompoundBorder(
-                new LineBorder(new Color(0x004466), 1),
-                BorderFactory.createEmptyBorder(6, 10, 6, 10)));
+        keywordInputField = Theme.textField(20);
         keywordInputField.setToolTipText("Press Enter to add keyword");
-        applyFocusBorder(keywordInputField, PANEL_ACCENT);
         keywordInputField.addActionListener(e -> addKeyword(keywordInputField.getText().trim()));
 
-        JButton addBtn = Theme.button("+ ADD");
+        JButton addBtn = Theme.button("+ Add");
         addBtn.addActionListener(e -> addKeyword(keywordInputField.getText().trim()));
 
-        JPanel inputRow = new JPanel(new BorderLayout(6, 0));
+        JPanel inputRow = new JPanel(new BorderLayout(8, 0));
         inputRow.setOpaque(false);
         inputRow.add(keywordInputField, BorderLayout.CENTER);
         inputRow.add(addBtn, BorderLayout.EAST);
 
         // Tags container — wrapping flow layout
-        tagsPanel = new JPanel(new WrapLayout(FlowLayout.LEFT, 6, 5));
+        tagsPanel = new JPanel(new WrapLayout(FlowLayout.LEFT, 8, 6));
         tagsPanel.setBackground(Theme.BG_DEEP);
-        tagsPanel.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+        tagsPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
-        JLabel emptyHint = new JLabel("no keywords yet — add some above");
-        emptyHint.setFont(COURIER_B10);
+        JLabel emptyHint = new JLabel("No keywords yet — add some above");
+        emptyHint.setFont(Theme.FONT_HINT);
         emptyHint.setForeground(Theme.TEXT_DIM);
         emptyHint.setName("emptyHint");
         tagsPanel.add(emptyHint);
@@ -256,56 +194,27 @@ public class FindInJarsPanel extends JPanel {
         tagsScroll.setMinimumSize(new Dimension(0, 80));
         Theme.styleScrollPane(tagsScroll, PANEL_ACCENT);
 
-        JPanel top = new JPanel(new BorderLayout(0, 6));
-        top.setOpaque(false);
-        top.add(hintLbl,  BorderLayout.NORTH);
-        top.add(inputRow, BorderLayout.CENTER);
+        JPanel content = new JPanel(new BorderLayout(0, 10));
+        content.setOpaque(false);
+        content.add(inputRow,   BorderLayout.NORTH);
+        content.add(tagsScroll, BorderLayout.CENTER);
 
-        card.add(top,        BorderLayout.NORTH);
-        card.add(tagsScroll, BorderLayout.CENTER);
-
-        JPanel wrap = new JPanel(new BorderLayout());
-        wrap.setOpaque(false);
-        wrap.add(card, BorderLayout.CENTER);
+        JPanel wrap = Theme.formCard(
+                "Search keywords",
+                "Type a keyword and press Enter to add — click × to remove",
+                PANEL_ACCENT,
+                content
+        );
+        wrap.setMaximumSize(new Dimension(Integer.MAX_VALUE, 260));
         return wrap;
     }
 
     // ── Right: log panel ──────────────────────────────────────────────────────
     private JPanel buildLogPanel() {
-        JPanel header = Theme.sectionHeader("SCAN LOG", PANEL_ACCENT);
-
         logArea = Theme.textArea();
         logArea.setEditable(false);
-        logArea.setFont(COURIER_11);
-        logArea.setText("// ready — configure paths and keywords, then click FIND IN JARS\n");
-
-        JScrollPane scroll = new JScrollPane(logArea);
-        Theme.styleScrollPane(scroll, PANEL_ACCENT);
-
-        JButton clearLogBtn = Theme.ghostButton("CLEAR");
-        clearLogBtn.addActionListener(e -> logArea.setText(""));
-        JPanel headerRow = new JPanel(new BorderLayout());
-        headerRow.setOpaque(false);
-        headerRow.add(header, BorderLayout.CENTER);
-        JPanel clearWrap = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 3));
-        clearWrap.setOpaque(false); clearWrap.add(clearLogBtn);
-        headerRow.add(clearWrap, BorderLayout.EAST);
-
-        JPanel p = new JPanel(new BorderLayout());
-        p.setBackground(Theme.BG_DEEP);
-        p.add(headerRow, BorderLayout.NORTH);
-        p.add(scroll,    BorderLayout.CENTER);
-        return p;
-    }
-
-    // ── Status bar ────────────────────────────────────────────────────────────
-    private JPanel buildStatusBar() {
-        JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 4));
-        bar.setBackground(Theme.BG_SURFACE);
-        bar.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, Theme.BORDER_DIM));
-        statusLabel = new JLabel("ready");
-        statusLabel.setFont(COURIER_B10); statusLabel.setForeground(Theme.TEXT_DIM);
-        bar.add(statusLabel); return bar;
+        logArea.setText("Ready — configure paths, file types and keywords, then click Find in Jars.\n");
+        return Theme.logPanel("Scan Log", PANEL_ACCENT, logArea, () -> logArea.setText(""));
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -330,8 +239,8 @@ public class FindInJarsPanel extends JPanel {
     private void refreshTags() {
         tagsPanel.removeAll();
         if (keywords.isEmpty()) {
-            JLabel hint = new JLabel("no keywords yet — add some above");
-            hint.setFont(COURIER_B10); hint.setForeground(Theme.TEXT_DIM);
+            JLabel hint = new JLabel("No keywords yet — add some above");
+            hint.setFont(Theme.FONT_HINT); hint.setForeground(Theme.TEXT_DIM);
             hint.setName("emptyHint");
             tagsPanel.add(hint);
         } else {
@@ -342,40 +251,86 @@ public class FindInJarsPanel extends JPanel {
         tagsPanel.revalidate(); tagsPanel.repaint();
     }
 
+    /** A small rounded "chip" showing one keyword with a hover-sensitive × remove control. */
     private JPanel buildTag(String kw) {
-        JPanel tag = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0)) {
+        JPanel tag = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0)) {
             @Override protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(TAG_BG);
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
-                g2.setColor(TAG_BORDER);
-                g2.setStroke(new BasicStroke(1f));
-                g2.drawRoundRect(0, 0, getWidth()-1, getHeight()-1, 12, 12);
+                g2.setColor(Theme.BG_CONTROL);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), getHeight(), getHeight());
                 g2.dispose();
             }
         };
         tag.setOpaque(false);
-        tag.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 4));
+        tag.setBorder(BorderFactory.createEmptyBorder(5, 12, 5, 8));
 
         JLabel lbl = new JLabel(kw);
-        lbl.setFont(COURIER_11);
-        lbl.setForeground(PANEL_ACCENT);
+        lbl.setFont(Theme.FONT_UI_MD);
+        lbl.setForeground(Theme.TEXT_PRIMARY);
 
-        // ✕ button
+        // × remove control
         JLabel removeBtn = new JLabel("×");
-        removeBtn.setFont(new Font("Courier New", Font.BOLD, 13));
-        removeBtn.setForeground(new Color(0x446677));
+        removeBtn.setFont(Theme.FONT_UI_BOLD);
+        removeBtn.setForeground(Theme.TEXT_DIM);
         removeBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        removeBtn.setBorder(BorderFactory.createEmptyBorder(0, 3, 0, 0));
+        removeBtn.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 0));
         removeBtn.addMouseListener(new MouseAdapter() {
             public void mouseEntered(MouseEvent e) { removeBtn.setForeground(Theme.ERROR); }
-            public void mouseExited (MouseEvent e) { removeBtn.setForeground(new Color(0x446677)); }
+            public void mouseExited (MouseEvent e) { removeBtn.setForeground(Theme.TEXT_DIM); }
             public void mouseClicked(MouseEvent e) { removeKeyword(kw); }
         });
 
         tag.add(lbl); tag.add(removeBtn);
         return tag;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // FILE-TYPE FILTER HELPERS
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /** Returns the list of lowercase extensions (e.g. ".java") the user wants scanned. */
+    private List<String> getSelectedExtensions() {
+        String sel = (String) fileTypeCombo.getSelectedItem();
+        if (sel == null || sel.startsWith("ALL")) {
+            return new ArrayList<>(ALL_EXTENSIONS);
+        }
+        return Collections.singletonList(sel.trim().toLowerCase());
+    }
+
+    private static String describeFilter(List<String> exts) {
+        return String.join(" ", exts);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // RECURSIVE FILE COLLECTION
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Recursively walks {@code node}. Every .jar file found anywhere in the tree is
+     * added to {@code jarsOut}. Every other file whose name ends with one of
+     * {@code filterExts} is added to {@code plainsOut}. Sub-directories at any depth
+     * are entered automatically.
+     */
+    private void collectTargets(File node, List<String> filterExts,
+                                List<File> jarsOut, List<File> plainsOut) {
+        if (node.isDirectory()) {
+            File[] children = node.listFiles();
+            if (children == null) return;
+            Arrays.sort(children, Comparator.comparing(File::getName));
+            for (File child : children) {
+                collectTargets(child, filterExts, jarsOut, plainsOut);
+            }
+            return;
+        }
+        String lower = node.getName().toLowerCase();
+        if (lower.endsWith(".jar")) {
+            jarsOut.add(node);
+            return;
+        }
+        for (String ext : filterExts) {
+            if (lower.endsWith(ext)) { plainsOut.add(node); break; }
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -403,8 +358,8 @@ public class FindInJarsPanel extends JPanel {
         if (!outDir.exists())   { outDir.mkdirs(); }
 
         findBtn.setEnabled(false);
-        findBtn.setText("  SCANNING…");
-        status("Scanning…", Theme.TEXT_SECONDARY);
+        findBtn.setText("  Scanning…");
+        statusBar.set("Scanning…", Theme.TEXT_SECONDARY);
         openReportBtn.setEnabled(false);
         showInExplorerBtn.setEnabled(false);
         lastOutputDir = null;
@@ -412,30 +367,55 @@ public class FindInJarsPanel extends JPanel {
         final File finalOutDir = outDir;
         final List<String> kws = new ArrayList<>(keywords);
         final File finalLibFile = libFile;
+        final List<String> filterExts = getSelectedExtensions();
 
         new SwingWorker<String, String>() {
             @Override protected String doInBackground() throws Exception {
-                // Collect jar files
+                // ── Collect scan targets: jars + loose matching files, recursively ──
                 List<File> jars = new ArrayList<>();
-                if (finalLibFile.isFile() && finalLibFile.getName().endsWith(".jar")) {
-                    jars.add(finalLibFile);
+                List<File> plainFiles = new ArrayList<>();
+
+                File rootDir = finalLibFile.isDirectory()
+                        ? finalLibFile
+                        : (finalLibFile.getParentFile() != null ? finalLibFile.getParentFile() : finalLibFile);
+
+                if (finalLibFile.isFile()) {
+                    String lower = finalLibFile.getName().toLowerCase();
+                    if (lower.endsWith(".jar")) {
+                        jars.add(finalLibFile);
+                    } else {
+                        for (String ext : filterExts) {
+                            if (lower.endsWith(ext)) { plainFiles.add(finalLibFile); break; }
+                        }
+                    }
                 } else {
-                    File[] found = finalLibFile.listFiles((d, n) -> n.endsWith(".jar"));
-                    if (found != null) Collections.addAll(jars, found);
+                    collectTargets(finalLibFile, filterExts, jars, plainFiles);
                 }
-                publish("// Found " + jars.size() + " JAR(s) to scan\n");
+
+                publish("// File type filter: " + describeFilter(filterExts) + "\n");
+                publish("// Found " + jars.size() + " JAR(s) and " + plainFiles.size()
+                        + " loose file(s) to scan (recursive)\n");
 
                 // Build JSON
                 StringBuilder json = new StringBuilder("[\n");
                 for (int i = 0; i < kws.size(); i++) {
                     String kw = kws.get(i);
                     publish("//\n// ── Searching for: " + kw + "\n");
-                    String textToSearch = kw.replace('.', '/');
+                    String slashedKeyword = kw.replace('.', '/');
 
                     Map<String, List<Map<String, Object>>> jarResults = new LinkedHashMap<>();
+
                     for (File jar : jars) {
-                        List<Map<String, Object>> matches = scanJar(jar, textToSearch);
-                        if (!matches.isEmpty()) jarResults.put(jar.getName(), matches);
+                        List<Map<String, Object>> matches = scanJar(jar, kw, slashedKeyword, filterExts);
+                        if (!matches.isEmpty()) {
+                            jarResults.put(relativize(rootDir, jar), matches);
+                        }
+                    }
+
+                    if (!plainFiles.isEmpty()) {
+                        Map<String, List<Map<String, Object>>> looseGroups =
+                                scanPlainFiles(plainFiles, kw, slashedKeyword, rootDir);
+                        jarResults.putAll(looseGroups);
                     }
 
                     json.append("  {\n");
@@ -470,7 +450,7 @@ public class FindInJarsPanel extends JPanel {
                     json.append("\n");
 
                     int total = jarResults.values().stream().mapToInt(List::size).sum();
-                    publish("// → "+ totOcc + " hits in " + jarResults.size() + " JAR(s) and " + total + " class(s)\n");
+                    publish("// → "+ totOcc + " hits in " + jarResults.size() + " container(s) and " + total + " item(s)\n");
                 }
                 json.append("]\n");
 
@@ -504,40 +484,61 @@ public class FindInJarsPanel extends JPanel {
                     lastOutputDir = new File(outPath2);
                     openReportBtn.setEnabled(true);
                     showInExplorerBtn.setEnabled(true);
-                    status("✓  Done — report saved to: " + outPath2, Theme.SUCCESS);
+                    statusBar.set("✓  Done — report saved to: " + outPath2, Theme.SUCCESS);
                 } catch (Exception ex) {
                     appendLog("// ERROR: " + ex.getMessage() + "\n");
-                    status("✗  Error — check log", Theme.ERROR);
+                    statusBar.set("✗  Error — check log", Theme.ERROR);
                 } finally {
                     findBtn.setEnabled(true);
-                    findBtn.setText("▶  FIND IN JARS");
+                    findBtn.setText("▶  Find in Jars");
                 }
             }
         }.execute();
     }
 
-    private List<Map<String, Object>> scanJar(File jarFile, String textToSearch) {
+    /**
+     * Scans a single jar's entries, but only those whose name ends with one of
+     * {@code filterExts}. ".class" entries are searched using {@code slashedKeyword}
+     * (since class references appear as "com/foo/Bar" in bytecode); every other entry
+     * type is searched using the literal {@code rawKeyword}.
+     */
+    private List<Map<String, Object>> scanJar(File jarFile, String rawKeyword, String slashedKeyword,
+                                              List<String> filterExts) {
         List<Map<String, Object>> matches = new ArrayList<>();
         try (JarFile jar = new JarFile(jarFile)) {
             Enumeration<JarEntry> entries = jar.entries();
             boolean anyFound = false;
             while (entries.hasMoreElements()) {
                 JarEntry entry = entries.nextElement();
-                if (!entry.getName().endsWith(".class")) continue;
+                if (entry.isDirectory()) continue;
+
+                String entryLower = entry.getName().toLowerCase();
+                String matchedExt = null;
+                for (String ext : filterExts) {
+                    if (entryLower.endsWith(ext)) { matchedExt = ext; break; }
+                }
+                if (matchedExt == null) continue;
+
+                String textToSearch = matchedExt.equals(".class") ? slashedKeyword : rawKeyword;
+
                 int occ = 0;
                 try (InputStream is = jar.getInputStream(entry);
                      java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(is))) {
                     String line;
                     while ((line = reader.readLine()) != null)
                         if (line.contains(textToSearch)) occ++;
+                } catch (IOException skip) {
+                    continue; // unreadable / binary entry — skip it
                 }
+
                 if (occ > 0) {
                     anyFound = true;
                     String fullPath = entry.getName();
                     String className = fullPath;
                     int slash = className.lastIndexOf('/');
                     if (slash >= 0) className = className.substring(slash+1);
-                    if (className.endsWith(".class")) className = className.substring(0, className.length()-6);
+                    if (className.toLowerCase().endsWith(matchedExt))
+                        className = className.substring(0, className.length() - matchedExt.length());
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("className", className); m.put("classPath", fullPath); m.put("occurrences", occ);
                     matches.add(m);
@@ -549,6 +550,61 @@ public class FindInJarsPanel extends JPanel {
             publish("//   ERROR reading " + jarFile.getName() + ": " + e.getMessage() + "\n");
         }
         return matches;
+    }
+
+    /**
+     * Scans loose (non-jar) files found on disk, grouping the hits by their parent
+     * directory (relative to {@code rootDir}) so the report reads the same way a
+     * jar's contents do. ".class" files use {@code slashedKeyword}; everything else
+     * uses the literal {@code rawKeyword}.
+     */
+    private Map<String, List<Map<String, Object>>> scanPlainFiles(List<File> files, String rawKeyword,
+                                                                  String slashedKeyword, File rootDir) {
+        Map<String, List<Map<String, Object>>> groups = new LinkedHashMap<>();
+        for (File f : files) {
+            String lower = f.getName().toLowerCase();
+            String textToSearch = lower.endsWith(".class") ? slashedKeyword : rawKeyword;
+
+            int occ = 0;
+            try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(f))) {
+                String line;
+                while ((line = reader.readLine()) != null)
+                    if (line.contains(textToSearch)) occ++;
+            } catch (IOException e) {
+                publish("//   ERROR reading " + f.getName() + ": " + e.getMessage() + "\n");
+                continue;
+            }
+
+            if (occ > 0) {
+                String relPath  = relativize(rootDir, f);
+                int lastSlash   = relPath.lastIndexOf('/');
+                String parentKey = lastSlash >= 0 ? relPath.substring(0, lastSlash) : ".";
+                String groupKey  = "📁 " + parentKey;
+
+                String fileName = f.getName();
+                int dot = fileName.lastIndexOf('.');
+                String className = dot > 0 ? fileName.substring(0, dot) : fileName;
+
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("className", className);
+                m.put("classPath", relPath);
+                m.put("occurrences", occ);
+
+                groups.computeIfAbsent(groupKey, k -> new ArrayList<>()).add(m);
+                publish("//   [" + occ + "]  " + relPath + "\n");
+            }
+        }
+        return groups;
+    }
+
+    private static String relativize(File root, File file) {
+        try {
+            String rel = root.toPath().toAbsolutePath().normalize()
+                    .relativize(file.toPath().toAbsolutePath().normalize()).toString();
+            return rel.replace('\\', '/');
+        } catch (Exception e) {
+            return file.getName();
+        }
     }
 
     // ── called from inner class ───────────────────────────────────────────────
@@ -582,49 +638,13 @@ public class FindInJarsPanel extends JPanel {
     // HELPERS
     // ══════════════════════════════════════════════════════════════════════════
 
-    private JPanel buildCard(String label, Color accent) {
-        JPanel card = new JPanel();
-        card.setBackground(new Color(0x0D0E18));
-        TitledBorder tb = BorderFactory.createTitledBorder(
-                new LineBorder(new Color(accent.getRed()/4, accent.getGreen()/4, accent.getBlue()/4+10), 1),
-                "  " + label + "  ");
-        tb.setTitleFont(COURIER_B10);
-        tb.setTitleColor(new Color(
-                Math.min(255, accent.getRed()/2 + 20),
-                Math.min(255, accent.getGreen()/2 + 20),
-                Math.min(255, accent.getBlue()/2 + 20)));
-        card.setBorder(new CompoundBorder(tb, BorderFactory.createEmptyBorder(6, 8, 8, 8)));
-        return card;
-    }
-
-    private void applyFocusBorder(JTextField f, Color accent) {
-        f.addFocusListener(new FocusAdapter() {
-            public void focusGained(FocusEvent e) {
-                f.setBorder(BorderFactory.createCompoundBorder(
-                        new LineBorder(accent, 1), BorderFactory.createEmptyBorder(6,10,6,10)));
-            }
-            public void focusLost(FocusEvent e) {
-                f.setBorder(BorderFactory.createCompoundBorder(
-                        new LineBorder(new Color(0x004466), 1), BorderFactory.createEmptyBorder(6,10,6,10)));
-            }
-        });
-    }
-
     private void appendLog(String text) {
         logArea.append(text);
         logArea.setCaretPosition(logArea.getDocument().getLength());
     }
 
-    private void status(String msg, Color c) {
-        statusLabel.setText(msg); statusLabel.setForeground(c);
-    }
-
     private void showWarn(String msg, String title) {
         JOptionPane.showMessageDialog(this, msg, title, JOptionPane.WARNING_MESSAGE);
-    }
-
-    private JPanel vcenter(JPanel p) {
-        JPanel w = new JPanel(new GridBagLayout()); w.setOpaque(false); w.add(p); return w;
     }
 
     private static String jsonString(String value) {
@@ -774,8 +794,8 @@ public class FindInJarsPanel extends JPanel {
                     "</div>\n" +
                     "<div class='stats' id='statsBar'>\n" +
                     "  <div class='stat-pill'><span class='num' id='stSearches'>0</span> Search Terms</div>\n" +
-                    "  <div class='stat-pill'><span class='num' id='stJars'>0</span> JARs Hit</div>\n" +
-                    "  <div class='stat-pill'><span class='num' id='stClasses'>0</span> Classes Found</div>\n" +
+                    "  <div class='stat-pill'><span class='num' id='stJars'>0</span> Containers Hit</div>\n" +
+                    "  <div class='stat-pill'><span class='num' id='stClasses'>0</span> Items Found</div>\n" +
                     "  <div class='stat-pill'><span class='num' id='stOcc'>0</span> Total Occurrences</div>\n" +
                     "</div>\n" +
                     "<div class='search-wrap' id='filterWrap' style='display:none'>\n" +
@@ -855,7 +875,7 @@ public class FindInJarsPanel extends JPanel {
                     "      const card=document.createElement('div');card.className='jar-card'+(ji===0?' open':'');\n" +
                     "      if(ji===fj.length-1)card.style.borderRadius='0 0 8px 8px';\n" +
                     "      const tot=jar.classes.reduce((s,c)=>s+c.occurrences,0);\n" +
-                    "      card.innerHTML=`<div class='jar-header'><div class='jar-name'><svg fill='none' stroke='currentColor' stroke-width='2' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z'/></svg>${escHtml(jar.jar)}</div><div style='display:flex;align-items:center;gap:8px'><div class='jar-badge'><span class='count'>${jar.classes.length}</span> classes &middot; <span class='count'>${tot}</span> hits</div><svg class='chevron' fill='none' stroke='currentColor' stroke-width='2.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5'/></svg></div></div><div class='class-table-wrap'><table><thead><tr><th>#</th><th>Class</th><th>Path</th><th>Hits</th></tr></thead><tbody>${jar.classes.map((c,ci)=>`<tr><td style='color:var(--muted);width:36px'>${ci+1}</td><td class='td-class'>${escHtml(c.className)}</td><td class='td-path'>${escHtml(c.classPath)}</td><td><span class='td-occ'>${c.occurrences}</span></td></tr>`).join('')}</tbody></table></div>`;\n" +
+                    "      card.innerHTML=`<div class='jar-header'><div class='jar-name'><svg fill='none' stroke='currentColor' stroke-width='2' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z'/></svg>${escHtml(jar.jar)}</div><div style='display:flex;align-items:center;gap:8px'><div class='jar-badge'><span class='count'>${jar.classes.length}</span> items &middot; <span class='count'>${tot}</span> hits</div><svg class='chevron' fill='none' stroke='currentColor' stroke-width='2.5' viewBox='0 0 24 24'><path stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5'/></svg></div></div><div class='class-table-wrap'><table><thead><tr><th>#</th><th>Name</th><th>Path</th><th>Hits</th></tr></thead><tbody>${jar.classes.map((c,ci)=>`<tr><td style='color:var(--muted);width:36px'>${ci+1}</td><td class='td-class'>${escHtml(c.className)}</td><td class='td-path'>${escHtml(c.classPath)}</td><td><span class='td-occ'>${c.occurrences}</span></td></tr>`).join('')}</tbody></table></div>`;\n" +
                     "      card.querySelector('.jar-header').addEventListener('click',()=>card.classList.toggle('open'));\n" +
                     "      block.appendChild(card);\n" +
                     "    });\n" +
@@ -867,4 +887,30 @@ public class FindInJarsPanel extends JPanel {
                     "</script>\n" +
                     "</body>\n" +
                     "</html>\n";
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // HELP PAGE
+    // ══════════════════════════════════════════════════════════════════════════
+
+    public JPanel createHelpPanel() {
+        String html = ""
+                + "<h2>Jar Inspector</h2>"
+                + "<p>Searches for keywords across class files, either loose on disk or packed inside jars, "
+                + "and writes an interactive HTML report of every match.</p>"
+                + "<h3>Steps</h3>"
+                + "<ol>"
+                + "<li>Browse to a <b>Libs path</b> — a directory containing jars and/or class files.</li>"
+                + "<li>Pick the <b>File types</b> to scan (which extensions count as \"code\" to search).</li>"
+                + "<li>Add one or more <b>Keywords</b> — press Enter or click <b>+ Add</b> after typing each "
+                + "one; click the <b>×</b> on a chip to remove it.</li>"
+                + "<li>Browse to an <b>Output path</b> for the report.</li>"
+                + "<li>Click <b>Find in Jars</b> and watch progress in the Scan Log.</li>"
+                + "</ol>"
+                + "<h3>Viewing results</h3>"
+                + "<p>Click <b>Open Report</b> to launch the generated HTML report in your browser — it groups "
+                + "matches by jar/class with occurrence counts. Use <b>Show in Explorer</b> to reveal the "
+                + "output folder instead.</p>";
+        return Theme.helpPage("Jar Inspector — How to Use", PANEL_ACCENT, html,
+                () -> launcher.navigateTo(Launcher.JFINDER));
+    }
 }

@@ -4,7 +4,6 @@ import com.utilities.Launcher;
 import com.utilities.Theme.Theme;
 
 import javax.swing.*;
-import javax.swing.plaf.basic.BasicSplitPaneDivider;
 import javax.swing.text.*;
 import java.awt.*;
 import java.util.ArrayList;
@@ -13,9 +12,16 @@ import java.util.List;
 public class InsertCommandFormatterPanel extends JPanel {
 
     private final Launcher launcher;
+
+    // ── Accents for this panel ───────────────────────────────────────────────
+    private static final Color PANEL_ACCENT  = Theme.ACCENT;
+    private static final Color OUTPUT_ACCENT = Theme.INFO;
+
+    // ── State ─────────────────────────────────────────────────────────────────
     private JTextArea   inputArea, outputArea;
     private JTextField  searchField;
     private JLabel      matchCountLabel;
+    private Theme.StatusBar statusBar;
 
     private final Highlighter.HighlightPainter hlPainter =
             new DefaultHighlighter.DefaultHighlightPainter(new Color(0x00FF8840, true));
@@ -32,40 +38,27 @@ public class InsertCommandFormatterPanel extends JPanel {
         buildUI();
     }
 
+    // ══════════════════════════════════════════════════════════════════════════
+    // UI CONSTRUCTION
+    // ══════════════════════════════════════════════════════════════════════════
+
     private void buildUI() {
         add(buildToolbar(),   BorderLayout.NORTH);
         add(buildSplit(),     BorderLayout.CENTER);
-        add(buildStatusBar(), BorderLayout.SOUTH);
+        statusBar = Theme.statusBar();
+        add(statusBar.panel, BorderLayout.SOUTH);
     }
 
+    // ── Toolbar ───────────────────────────────────────────────────────────────
     private JPanel buildToolbar() {
-        JPanel bar = new JPanel(new BorderLayout()) {
-            @Override protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setColor(Theme.BG_SURFACE);
-                g2.fillRect(0, 0, getWidth(), getHeight());
-                g2.setColor(new Color(0,0,0,20));
-                for (int y = 0; y < getHeight(); y += 3) g2.drawLine(0, y, getWidth(), y);
-                g2.setColor(Theme.BORDER_DIM);
-                g2.drawLine(0, getHeight()-1, getWidth(), getHeight()-1);
-                g2.dispose();
-            }
-        };
-        bar.setOpaque(false);
+        JLabel title = new JLabel("Insert Command Formatter");
+        title.setFont(Theme.FONT_UI_BOLD);
+        title.setForeground(PANEL_ACCENT);
+        title.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 14));
 
-        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 7));
-        left.setOpaque(false);
-
-        JLabel title = new JLabel("INSERT FORMATTER");
-        title.setFont(Theme.FONT_MONO_LG);
-        title.setForeground(Theme.ACCENT);
-        title.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 14));
-
-        JSeparator sep = Theme.vDivider();
-
-        JButton formatBtn    = Theme.button("▶  FORMAT");
-        JButton clearBtn     = Theme.ghostButton("CLEAR");
-        JButton copyQueryBtn = Theme.button("⎘  COPY QUERY");
+        JButton formatBtn    = Theme.button("▶  Format");
+        JButton clearBtn     = Theme.ghostButton("Clear");
+        JButton copyQueryBtn = Theme.button("⎘  Copy Query");
 
         String[] sizes = {"10","11","12","13","14","15","16","18","20","22","24"};
         JComboBox<String> fontCombo = Theme.comboBox(sizes);
@@ -73,40 +66,43 @@ public class InsertCommandFormatterPanel extends JPanel {
         fontCombo.setPreferredSize(new Dimension(58, 26));
         fontCombo.addActionListener(e -> {
             int sz = Integer.parseInt((String) fontCombo.getSelectedItem());
-            inputArea.setFont(new Font("Courier New", Font.PLAIN, sz));
-            outputArea.setFont(new Font("Courier New", Font.PLAIN, sz));
+            inputArea.setFont(new Font("Consolas", Font.PLAIN, sz));
+            outputArea.setFont(new Font("Consolas", Font.PLAIN, sz));
         });
 
-        left.add(title); left.add(sep);
-        left.add(formatBtn); left.add(clearBtn); left.add(copyQueryBtn);
-        left.add(Theme.vDivider());
-        JLabel szLbl = new JLabel(" size:"); szLbl.setFont(Theme.FONT_LABEL);
+        JLabel szLbl = new JLabel("Size:");
+        szLbl.setFont(Theme.FONT_LABEL);
         szLbl.setForeground(Theme.TEXT_SECONDARY);
-        left.add(szLbl); left.add(fontCombo);
 
-        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 7));
-        right.setOpaque(false);
+        JPanel left = Theme.toolRow(title, Theme.vDivider(),
+                formatBtn, clearBtn, copyQueryBtn, Theme.vDivider(), szLbl, fontCombo);
+        left.setBorder(BorderFactory.createEmptyBorder(0, 12, 0, 0));
 
         searchField = Theme.textField(16);
         searchField.setPreferredSize(new Dimension(190, 28));
         searchField.setFont(Theme.FONT_MONO_SM);
 
-        JButton searchBtn = Theme.ghostButton("FIND");
+        JButton searchBtn = Theme.ghostButton("Find");
         JButton prevBtn   = Theme.ghostButton("↑");
         JButton nextBtn   = Theme.ghostButton("↓");
 
         matchCountLabel = new JLabel("");
-        matchCountLabel.setFont(Theme.FONT_LABEL);
+        matchCountLabel.setFont(Theme.FONT_UI_SM);
         matchCountLabel.setForeground(Theme.TEXT_SECONDARY);
 
-        right.add(matchCountLabel); right.add(searchField);
-        right.add(searchBtn); right.add(prevBtn); right.add(nextBtn);
+        JButton howToUseBtn = Theme.helpButton("How to Use");
+        howToUseBtn.addActionListener(e -> launcher.navigateTo(Launcher.INSERT_HELP));
 
-        bar.add(vcenter(left),  BorderLayout.WEST);
-        bar.add(vcenter(right), BorderLayout.EAST);
+        JPanel right = Theme.toolRow(matchCountLabel, searchField, searchBtn, prevBtn, nextBtn, Theme.vDivider(), howToUseBtn);
+
+        JPanel bar = Theme.toolbar(left, right);
 
         formatBtn.addActionListener(e -> runFormat());
-        clearBtn.addActionListener(e -> { inputArea.setText(""); outputArea.setText(""); });
+        clearBtn.addActionListener(e -> {
+            inputArea.setText("");
+            outputArea.setText("");
+            statusBar.set("Ready", Theme.TEXT_DIM);
+        });
         copyQueryBtn.addActionListener(e -> copyQuery());
         searchBtn.addActionListener(e -> performSearch());
         searchField.addActionListener(e -> performSearch());
@@ -116,31 +112,18 @@ public class InsertCommandFormatterPanel extends JPanel {
         return bar;
     }
 
-    private JPanel vcenter(JPanel p) {
-        JPanel w = new JPanel(new GridBagLayout()); w.setOpaque(false); w.add(p); return w;
-    }
-
+    // ── Main split: input | formatted output ────────────────────────────────
     private JSplitPane buildSplit() {
         inputArea  = Theme.textArea();
         outputArea = Theme.textArea();
-        inputArea.setLineWrap(true); inputArea.setWrapStyleWord(true);
+        inputArea.setLineWrap(true);
+        inputArea.setWrapStyleWord(true);
         outputArea.setEditable(true);
 
-        JPanel leftPanel  = paneWithHeader("INPUT QUERY",              inputArea,  Theme.ACCENT);
-        JPanel rightPanel = paneWithHeader("FORMATTED COL-VALUE TABLE", outputArea, new Color(0x4488FF));
+        JPanel leftPanel  = paneWithHeader("Input Query",               inputArea,  PANEL_ACCENT);
+        JPanel rightPanel = paneWithHeader("Formatted Col-Value Table", outputArea, OUTPUT_ACCENT);
 
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, rightPanel);
-        split.setResizeWeight(0.45);
-        split.setBorder(null);
-        split.setDividerSize(4);
-        split.setBackground(Theme.BORDER_MID);
-        split.setUI(new javax.swing.plaf.basic.BasicSplitPaneUI() {
-            @Override public BasicSplitPaneDivider createDefaultDivider() {
-                BasicSplitPaneDivider d = new BasicSplitPaneDivider(this);
-                d.setBackground(Theme.BORDER_MID); d.setBorder(null); return d;
-            }
-        });
-        return split;
+        return Theme.split(leftPanel, rightPanel, 500, 0.45);
     }
 
     private JPanel paneWithHeader(String title, JTextArea area, Color accent) {
@@ -156,14 +139,9 @@ public class InsertCommandFormatterPanel extends JPanel {
         return p;
     }
 
-    private JPanel buildStatusBar() {
-        JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 4));
-        bar.setBackground(Theme.BG_SURFACE);
-        bar.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, Theme.BORDER_DIM));
-        JLabel lbl = new JLabel("ready");
-        lbl.setFont(Theme.FONT_LABEL); lbl.setForeground(Theme.TEXT_DIM);
-        bar.add(lbl); return bar;
-    }
+    // ══════════════════════════════════════════════════════════════════════════
+    // FORMATTING / SEARCH LOGIC
+    // ══════════════════════════════════════════════════════════════════════════
 
     private void runFormat() {
         clearHighlights();
@@ -173,8 +151,10 @@ public class InsertCommandFormatterPanel extends JPanel {
             ParseResult r = parseInsert(raw);
             lastColumns = r.columns; lastValues = r.values; lastTableName = r.tableName;
             outputArea.setText(buildColValueTable(r.columns, r.values));
+            statusBar.set("Formatted " + r.columns.size() + " column(s) from table " + r.tableName, Theme.SUCCESS);
         } catch (Exception ex) {
             outputArea.setText("// ERROR:\n// " + ex.getMessage());
+            statusBar.set("Error: " + ex.getMessage(), Theme.ERROR);
         }
     }
 
@@ -190,8 +170,12 @@ public class InsertCommandFormatterPanel extends JPanel {
             lastColumns = cols; lastValues = vals;
             java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
                     .setContents(new java.awt.datatransfer.StringSelection(generateInsertSQL()), null);
+            statusBar.set("Copied INSERT statement to clipboard", Theme.SUCCESS);
             JOptionPane.showMessageDialog(this, "Copied to clipboard.", "Done", JOptionPane.INFORMATION_MESSAGE);
-        } catch (Exception ex) { outputArea.setText("// Copy failed: " + ex.getMessage()); }
+        } catch (Exception ex) {
+            outputArea.setText("// Copy failed: " + ex.getMessage());
+            statusBar.set("Copy failed: " + ex.getMessage(), Theme.ERROR);
+        }
     }
 
     private void performSearch() {
@@ -255,5 +239,33 @@ public class InsertCommandFormatterPanel extends JPanel {
         sb.append(") VALUES (\n");
         for (int i = 0; i < lastValues.size(); i++) sb.append("    ").append(lastValues.get(i)).append(i<lastValues.size()-1?",":"").append("\n");
         sb.append(");"); return sb.toString();
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // HELP PAGE
+    // ══════════════════════════════════════════════════════════════════════════
+
+    public JPanel createHelpPanel() {
+        String html = ""
+                + "<h2>Insert Command Formatter</h2>"
+                + "<p>Turns a raw <code>INSERT INTO ... VALUES (...)</code> statement into a readable "
+                + "column/value table, and lets you copy a cleanly reformatted version back out.</p>"
+                + "<h3>Steps</h3>"
+                + "<ol>"
+                + "<li>Paste a full <code>INSERT INTO table (col1, col2, ...) VALUES (val1, val2, ...)</code> "
+                + "statement into the left <b>Input Query</b> pane.</li>"
+                + "<li>Click <b>Format</b> — the right pane shows each column lined up next to its value.</li>"
+                + "<li>Click <b>Copy Query</b> to copy a nicely re-indented <code>INSERT</code> statement "
+                + "(built from the current column/value table) to your clipboard.</li>"
+                + "<li>Use <b>Clear</b> to reset both panes.</li>"
+                + "</ol>"
+                + "<h3>Searching the output</h3>"
+                + "<p>Type into the search box in the toolbar and press <b>Find</b> (or Enter) to highlight "
+                + "matches in the formatted output. Use the <b>↑</b> / <b>↓</b> buttons to step between matches; "
+                + "the count next to the search box shows your current position.</p>"
+                + "<h3>Font size</h3>"
+                + "<p>The <b>Size</b> dropdown changes the font size of both the input and output panes.</p>";
+        return Theme.helpPage("Insert Command Formatter — How to Use", PANEL_ACCENT, html,
+                () -> launcher.navigateTo(Launcher.INSERT));
     }
 }

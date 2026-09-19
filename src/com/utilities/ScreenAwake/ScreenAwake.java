@@ -13,12 +13,11 @@ public class ScreenAwake extends JFrame {
     private Timer timer;
     private boolean isRunning = false;
     private int interval = 30; // seconds
-    private int tickCount = 0;
+
 
     // UI Components
     private JButton toggleBtn;
     private JLabel statusLabel;
-    private JLabel countLabel;
     private JSlider intervalSlider;
     private JLabel intervalLabel;
     private JPanel pulsePanel;
@@ -210,12 +209,6 @@ public class ScreenAwake extends JFrame {
         toggleBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
         toggleBtn.addActionListener(e -> toggleKeepAwake());
 
-        // Count label
-        countLabel = new JLabel("Nudges: 0");
-        countLabel.setFont(new Font("SansSerif", Font.PLAIN, 12));
-        countLabel.setForeground(TEXT_MUTED);
-        countLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-
         // Separator
         JSeparator sep = new JSeparator();
         sep.setForeground(new Color(40, 45, 65));
@@ -236,10 +229,10 @@ public class ScreenAwake extends JFrame {
         center.add(Box.createVerticalStrut(20));
         center.add(toggleBtn);
         center.add(Box.createVerticalStrut(12));
-        center.add(countLabel);
+
 
         // Footer
-        JLabel footer = new JLabel("Don't forget to STOP while leaving your computer unattended!");
+        JLabel footer = new JLabel("Don't forget to STOP while leaving your computer unattended!!!");
         footer.setFont(new Font("SansSerif", Font.BOLD, 11));
         footer.setForeground(BTN_ON);
         footer.setHorizontalAlignment(SwingConstants.CENTER);
@@ -253,7 +246,7 @@ public class ScreenAwake extends JFrame {
     private void toggleKeepAwake() {
         if (!isRunning) {
             isRunning = true;
-            tickCount = 0;
+
             statusLabel.setText("Active");
             statusLabel.setForeground(ACCENT_ON);
             toggleBtn.setText("■  Stop");
@@ -275,9 +268,8 @@ public class ScreenAwake extends JFrame {
             timer.scheduleAtFixedRate(new TimerTask() {
                 public void run() {
                     nudgeMouse();
-                    tickCount++;
-                    SwingUtilities.invokeLater(() ->
-                            countLabel.setText("Nudges: " + tickCount));
+
+
                 }
             }, interval * 1000L, interval * 1000L);
 
